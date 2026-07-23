@@ -1,0 +1,382 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+struct ComposerView: View {
+    var onSend: ((String) -> Void)?
+    var isStreaming: Bool = false
+    var isRateLimited: Bool = false
+    var rateLimitMessage: String? = nil
+    var chatMode: ChatRoomView.ChatMode = .ask
+    var hasWorkspace: Bool = false
+    @Binding var isAutoSpeakEnabled: Bool
+    
+    @State private var messageText = ""
+    @State private var isWebSearchEnabled = false
+    @State private var attachedFiles: [AttachedFile] = []
+    @State private var showFilePicker = false
+    @FocusState private var isFocused: Bool
+    
+    // Voice-to-text
+    @StateObject private var speechRecognizer = SpeechRecognizer()
+    @State private var isListening = false
+    
+    private var placeholder: String {
+        switch chatMode {
+        case .agent:
+            return hasWorkspace
+                ? "Tell the agent what to do..."
+                : "Select a workspace folder first..."
+        case .ask:
+            return "Message AI..."
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Divider().foregroundColor(.hermes.border)
+            
+            // Attached files
+            if !attachedFiles.isEmpty {
+                attachedFilesBar
+            }
+            
+            // Rate limit warning
+            if isRateLimited {
+                rateLimitInline
+            }
+            
+            // Main composer
+            HStack(alignment: .bottom, spacing: HermesSpacing.md) {
+                // Action Buttons
+                HStack(spacing: HermesSpacing.sm) {
+                    // File attachment
+                    Button(action: { showFilePicker = true }) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.hermes.muted)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isStreaming || isRateLimited)
+                    
+                    // Voice-to-text mic button
+                    Button(action: { toggleListening() }) {
+                        Image(systemName: isListening ? "mic.fill" : "mic")
+                            .font(.system(size: 16))
+                            .foregroundColor(isListening ? .red : .hermes.muted)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isStreaming || isRateLimited)
+                    
+                    // Auto-speak toggle
+                    Button(action: { isAutoSpeakEnabled.toggle() }) {
+                        Image(systemName: isAutoSpeakEnabled ? "speaker.wave.2.fill" : "speaker.wave.1")
+                            .font(.system(size: 16))
+                            .foregroundColor(isAutoSpeakEnabled ? .hermes.accent : .hermes.muted)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isStreaming)
+                    
+                    // Web Search toggle
+                    Button(action: { isWebSearchEnabled.toggle() }) {
+                        Image(systemName: isWebSearchEnabled ? "globe.americas.fill" : "globe")
+                            .font(.system(size: 16))
+                            .foregroundColor(isWebSearchEnabled ? .hermes.success : .hermes.muted)
+                            .frame(width: 36, height: 36)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(isStreaming)
+                }
+                
+                // Text Input
+                ZStack(alignment: .leading) {
+                    if isListening {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 8, height: 8)
+                                .scaleEffect(isListening ? 1.3 : 0.7)
+                                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: isListening)
+                            Text(speechRecognizer.recognizedText.isEmpty ? "Listening…" : speechRecognizer.recognizedText)
+                                .font(.hermes.body)
+                                .foregroundColor(speechRecognizer.recognizedText.isEmpty ? .hermes.muted : .hermes.text)
+                                .lineLimit(3)
+                            Spacer()
+                        }
+                        .padding(.horizontal, HermesSpacing.xs)
+                    } else {
+                        if messageText.isEmpty {
+                            Text(placeholder)
+                                .font(.hermes.body)
+                                .foregroundColor(.hermes.muted)
+                                .padding(.horizontal, HermesSpacing.xs)
+                                .allowsHitTesting(false)
+                        }
+                        
+                        TextField("", text: $messageText, axis: .vertical)
+                            .font(.hermes.body)
+                            .foregroundColor(.hermes.text)
+                            .lineLimit(1...6)
+                            .focused($isFocused)
+                            .onSubmit {
+                                if !messageText.isEmpty { handleSend() }
+                            }
+                            #if os(iOS)
+                            .textInputAutocapitalization(.sentences)
+                            #endif
+                    }
+                }
+                .padding(.horizontal, HermesSpacing.md)
+                .padding(.vertical, HermesSpacing.sm + 2)
+                .background(Color.hermes.bg)
+                .cornerRadius(HermesRadius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HermesRadius.md)
+                        .strokeBorder(Color.hermes.border, lineWidth: 1)
+                )
+                
+                // Send / Stop Button
+                Button(action: {
+                    if isStreaming {
+                        // Stop generation
+                    } else {
+                        handleSend()
+                    }
+                }) {
+                    Image(systemName: isStreaming ? "stop.fill" : (chatMode == .agent ? "hammer.fill" : "arrow.up"))
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 36, height: 36)
+                        .background(sendButtonColor)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(!isStreaming && (messageText.isEmpty && attachedFiles.isEmpty || (chatMode == .agent && !hasWorkspace)))
+                .keyboardShortcut(.return, modifiers: [.command])
+            }
+            .padding(.horizontal, HermesSpacing.lg)
+            .padding(.vertical, HermesSpacing.md)
+            .background(Color.hermes.surface)
+        }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: allowedFileTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            handleFileImport(result)
+        }
+        .onChange(of: speechRecognizer.isRecording) {
+            if !speechRecognizer.isRecording {
+                isListening = false
+                let text = speechRecognizer.recognizedText.trimmingCharacters(in: .whitespaces)
+                speechRecognizer.recognizedText = ""
+                if !text.isEmpty { onSend?(text) }
+            }
+        }
+    }
+    
+    // MARK: - Attached Files Bar
+    private var attachedFilesBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: HermesSpacing.sm) {
+                ForEach(attachedFiles) { file in
+                    fileChip(file)
+                }
+            }
+            .padding(.horizontal, HermesSpacing.lg)
+            .padding(.vertical, HermesSpacing.sm)
+        }
+        .background(Color.hermes.bg)
+    }
+    
+    private func fileChip(_ file: AttachedFile) -> some View {
+        HStack(spacing: HermesSpacing.xs) {
+            Image(systemName: file.type.icon)
+                .font(.system(size: 11))
+                .foregroundColor(file.type.color)
+            
+            Text(file.name)
+                .font(.hermes.caption)
+                .foregroundColor(.hermes.text)
+                .lineLimit(1)
+                .frame(maxWidth: 120)
+            
+            Button(action: { attachedFiles.removeAll { $0.id == file.id } }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.hermes.muted)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, HermesSpacing.sm)
+        .padding(.vertical, HermesSpacing.xs)
+        .background(Color.hermes.surface)
+        .cornerRadius(HermesRadius.sm)
+        .overlay(
+            RoundedRectangle(cornerRadius: HermesRadius.sm)
+                .strokeBorder(Color.hermes.border, lineWidth: 1)
+        )
+    }
+    
+    // MARK: - Rate Limit Inline
+    private var rateLimitInline: some View {
+        HStack(spacing: HermesSpacing.sm) {
+            Image(systemName: "clock.fill")
+                .font(.system(size: 10))
+                .foregroundColor(.hermes.warning)
+            Text(rateLimitMessage ?? "Rate limited — please wait")
+                .font(.hermes.caption)
+                .foregroundColor(.hermes.warning)
+            Spacer()
+        }
+        .padding(.horizontal, HermesSpacing.lg)
+        .padding(.vertical, HermesSpacing.xs)
+        .background(Color.hermes.warning.opacity(0.1))
+    }
+    
+    // MARK: - Computed
+    private var sendButtonColor: Color {
+        if isStreaming { return .hermes.danger }
+        if isRateLimited || (chatMode == .agent && !hasWorkspace) { return .hermes.muted.opacity(0.4) }
+        if messageText.isEmpty && attachedFiles.isEmpty { return .hermes.muted.opacity(0.4) }
+        return chatMode == .agent ? .orange : .hermes.accent
+    }
+    
+    private var allowedFileTypes: [UTType] {
+        [
+            .pdf, .plainText, .utf8PlainText,
+            .sourceCode, .json, .xml, .commaSeparatedText,
+            .html, .css, .javaScript,
+            UTType(filenameExtension: "md") ?? .plainText,
+            UTType(filenameExtension: "php") ?? .sourceCode,
+            UTType(filenameExtension: "docx") ?? .data
+        ].compactMap { $0 }
+    }
+    
+    // MARK: - Actions
+    private func toggleListening() {
+        if isListening {
+            speechRecognizer.stopRecording()
+            isListening = false
+        } else {
+            Task { @MainActor in
+                if !speechRecognizer.isAuthorized {
+                    await speechRecognizer.requestAuthorization()
+                }
+                guard speechRecognizer.isAuthorized else { return }
+                isListening = true
+                speechRecognizer.startRecording()
+            }
+        }
+    }
+    
+    private func handleSend() {
+        let text = messageText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty || !attachedFiles.isEmpty else { return }
+        
+        var fullMessage = text
+        
+        // Append file references
+        if !attachedFiles.isEmpty {
+            let fileList = attachedFiles.map { "📎 \($0.name)" }.joined(separator: "\n")
+            if fullMessage.isEmpty {
+                fullMessage = fileList
+            } else {
+                fullMessage += "\n\nAttached:\n\(fileList)"
+            }
+        }
+        
+        onSend?(fullMessage)
+        messageText = ""
+        attachedFiles.removeAll()
+        isFocused = true
+    }
+    
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+                
+                let name = url.lastPathComponent
+                let ext = url.pathExtension.lowercased()
+                let type = AttachedFileType.from(extension: ext)
+                
+                let file = AttachedFile(
+                    name: name,
+                    url: url,
+                    type: type
+                )
+                attachedFiles.append(file)
+            }
+        case .failure(let error):
+            print("File import failed: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Attached File Model
+struct AttachedFile: Identifiable {
+    let id = UUID()
+    let name: String
+    let url: URL
+    let type: AttachedFileType
+}
+
+enum AttachedFileType: String {
+    case pdf, text, code, document, data, unknown
+    
+    var icon: String {
+        switch self {
+        case .pdf: return "doc.fill"
+        case .text: return "doc.text"
+        case .code: return "chevron.left.forwardslash.chevron.right"
+        case .document: return "doc.richtext"
+        case .data: return "tablecells"
+        case .unknown: return "paperclip"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .pdf: return .red
+        case .text: return .blue
+        case .code: return .purple
+        case .document: return .orange
+        case .data: return .green
+        case .unknown: return .hermes.muted
+        }
+    }
+    
+    static func from(extension ext: String) -> AttachedFileType {
+        switch ext {
+        case "pdf": return .pdf
+        case "txt", "md", "log": return .text
+        case "swift", "js", "ts", "py", "php", "rb", "go", "java", "c", "cpp", "h", "html", "css", "json", "xml", "yaml", "yml", "toml": return .code
+        case "docx", "doc", "rtf": return .document
+        case "csv", "xlsx", "xls": return .data
+        default: return .unknown
+        }
+    }
+}
+
+#Preview {
+    struct PreviewWrapper: View {
+        @State var autoSpeak = false
+        var body: some View {
+            VStack {
+                Spacer()
+                ComposerView(isAutoSpeakEnabled: $autoSpeak)
+            }
+            .background(Color.hermes.bg)
+        }
+    }
+    return PreviewWrapper()
+}
