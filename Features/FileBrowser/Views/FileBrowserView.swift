@@ -97,7 +97,7 @@ struct FileBrowserView: View {
     // MARK: - Header
     private var headerBar: some View {
         HStack(spacing: HermesSpacing.md) {
-            Image(systemName: "folder.fill")
+            Image(systemName: "folder")
                 .foregroundColor(.hermes.accent)
                 .font(.system(size: 16))
             
@@ -150,7 +150,7 @@ struct FileBrowserView: View {
     private func breadcrumbBar(root: URL) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: HermesSpacing.xs) {
-                Image(systemName: "house.fill")
+                Image(systemName: "house")
                     .font(.system(size: 10))
                     .foregroundColor(.hermes.muted)
                 
@@ -351,13 +351,13 @@ struct FileBrowserView: View {
     
     // MARK: - Helpers
     private func fileIcon(for item: FileItem) -> String {
-        if item.isTextFile { return "doc.text.fill" }
-        if item.isImageFile { return "photo.fill" }
+        if item.isTextFile { return "doc.text" }
+        if item.isImageFile { return "photo" }
         switch item.url.pathExtension.lowercased() {
-        case "pdf": return "doc.fill"
-        case "zip", "tar", "gz": return "archivebox.fill"
+        case "pdf": return "doc"
+        case "zip", "tar", "gz": return "archivebox"
         case "mp3", "wav", "aac": return "music.note"
-        case "mp4", "mov": return "film.fill"
+        case "mp4", "mov": return "film"
         default: return "doc"
         }
     }
@@ -509,7 +509,7 @@ struct FileEditorView: View {
         VStack(spacing: 0) {
             // Header
             HStack(spacing: HermesSpacing.md) {
-                Image(systemName: "doc.text.fill")
+                Image(systemName: "doc.text")
                     .foregroundColor(.blue)
                     .font(.system(size: 16))
                 
@@ -669,7 +669,7 @@ struct FolderRowView: View {
             }
         } label: {
             HStack(spacing: HermesSpacing.sm) {
-                Image(systemName: "folder.fill")
+                Image(systemName: "folder")
                     .foregroundColor(.hermes.accent)
                     .font(.system(size: 13))
                 Text(item.name)
@@ -726,11 +726,11 @@ struct FolderRowView: View {
     }
     
     private func fileIcon(for item: FileItem) -> String {
-        if item.isTextFile { return "doc.text.fill" }
-        if item.isImageFile { return "photo.fill" }
+        if item.isTextFile { return "doc.text" }
+        if item.isImageFile { return "photo" }
         switch item.url.pathExtension.lowercased() {
-        case "pdf": return "doc.fill"
-        case "zip", "tar", "gz": return "archivebox.fill"
+        case "pdf": return "doc"
+        case "zip", "tar", "gz": return "archivebox"
         default: return "doc"
         }
     }

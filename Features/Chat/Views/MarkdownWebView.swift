@@ -15,7 +15,24 @@ class NoScrollWKWebView: WKWebView {
 struct MarkdownWebView: NSViewRepresentable {
     let html: String
     @Binding var contentHeight: CGFloat
-    
+
+    /// Global cache of resolved heights keyed by HTML hash. Prevents the
+    /// "pop-in" flicker that used to happen when a streaming reply finished:
+    /// the streamingBubble is torn down and the messageRow mounts a *new*
+    /// WebView that would otherwise start at the default 40pt before its
+    /// async height measurement lands. With the cache, re-mounts use the
+    /// last-known height for identical HTML.
+    private static var heightCache: [Int: CGFloat] = [:]
+    private static let heightCacheQueue = DispatchQueue(label: "MarkdownWebView.heightCache")
+
+    static func cachedHeight(for html: String) -> CGFloat? {
+        heightCacheQueue.sync { heightCache[html.hashValue] }
+    }
+
+    static func storeHeight(_ h: CGFloat, for html: String) {
+        heightCacheQueue.async { heightCache[html.hashValue] = h }
+    }
+
     init(html: String, contentHeight: Binding<CGFloat> = .constant(40)) {
         self.html = html
         self._contentHeight = contentHeight
@@ -111,13 +128,24 @@ struct MarkdownWebView: NSViewRepresentable {
         @Binding var contentHeight: CGFloat
         var lastHTML: String?
         weak var webView: WKWebView?
-        
+
         init(contentHeight: Binding<CGFloat>) { self._contentHeight = contentHeight }
-        
+
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             webView.evaluateJavaScript("document.body.scrollHeight") { [weak self] result, _ in
                 guard let self, let h = result as? CGFloat, h > 0 else { return }
-                DispatchQueue.main.async { self.contentHeight = h }
+                let html = self.lastHTML ?? ""
+                DispatchQueue.main.async {
+                    // Only push updates when the delta is meaningful — otherwise
+                    // sub-pixel jitter from font metrics causes tiny re-layout
+                    // loops that read as flicker to the eye.
+                    if abs(self.contentHeight - h) > 0.5 {
+                        self.contentHeight = h
+                    }
+                    if !html.isEmpty {
+                        MarkdownWebView.storeHeight(h, for: html)
+                    }
+                }
             }
         }
     }

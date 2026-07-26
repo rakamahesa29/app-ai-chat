@@ -201,7 +201,7 @@ struct MessageBubble: View {
     private func educationEvalCard(_ eval: ThesisEvalData) -> some View {
         VStack(alignment: .leading, spacing: HermesSpacing.md) {
             HStack(spacing: HermesSpacing.sm) {
-                Image(systemName: "graduationcap.fill")
+                Image(systemName: "graduationcap")
                     .foregroundColor(.orange)
                     .font(.system(size: 13))
                 Text("Thesis Evaluation")

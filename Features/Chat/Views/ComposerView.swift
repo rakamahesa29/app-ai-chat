@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ComposerView: View {
+    var roomId: String? = nil
     var onSend: ((String) -> Void)?
     var isStreaming: Bool = false
     var isRateLimited: Bool = false
@@ -13,7 +14,10 @@ struct ComposerView: View {
     @State private var messageText = ""
     @State private var isWebSearchEnabled = false
     @State private var attachedFiles: [AttachedFile] = []
+    @State private var pastedCode: String? = nil
     @State private var showFilePicker = false
+    @State private var showPasteCodeSheet = false
+    @State private var showSkillsSheet = false
     @FocusState private var isFocused: Bool
     
     // Voice-to-text
@@ -35,8 +39,8 @@ struct ComposerView: View {
         VStack(spacing: 0) {
             Divider().foregroundColor(.hermes.border)
             
-            // Attached files
-            if !attachedFiles.isEmpty {
+            // Attached files / pasted code chips
+            if !attachedFiles.isEmpty || pastedCode != nil {
                 attachedFilesBar
             }
             
@@ -49,20 +53,11 @@ struct ComposerView: View {
             HStack(alignment: .bottom, spacing: HermesSpacing.md) {
                 // Action Buttons
                 HStack(spacing: HermesSpacing.sm) {
-                    // File attachment
-                    Button(action: { showFilePicker = true }) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(.hermes.muted)
-                            .frame(width: 36, height: 36)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                    .disabled(isStreaming || isRateLimited)
+                    plusMenu
                     
                     // Voice-to-text mic button
                     Button(action: { toggleListening() }) {
-                        Image(systemName: isListening ? "mic.fill" : "mic")
+                        Image(systemName: "mic")
                             .font(.system(size: 16))
                             .foregroundColor(isListening ? .red : .hermes.muted)
                             .frame(width: 36, height: 36)
@@ -73,7 +68,7 @@ struct ComposerView: View {
                     
                     // Auto-speak toggle
                     Button(action: { isAutoSpeakEnabled.toggle() }) {
-                        Image(systemName: isAutoSpeakEnabled ? "speaker.wave.2.fill" : "speaker.wave.1")
+                        Image(systemName: isAutoSpeakEnabled ? "speaker.wave.2" : "speaker.wave.1")
                             .font(.system(size: 16))
                             .foregroundColor(isAutoSpeakEnabled ? .hermes.accent : .hermes.muted)
                             .frame(width: 36, height: 36)
@@ -84,7 +79,7 @@ struct ComposerView: View {
                     
                     // Web Search toggle
                     Button(action: { isWebSearchEnabled.toggle() }) {
-                        Image(systemName: isWebSearchEnabled ? "globe.americas.fill" : "globe")
+                        Image(systemName: "globe")
                             .font(.system(size: 16))
                             .foregroundColor(isWebSearchEnabled ? .hermes.success : .hermes.muted)
                             .frame(width: 36, height: 36)
@@ -149,7 +144,8 @@ struct ComposerView: View {
                         handleSend()
                     }
                 }) {
-                    Image(systemName: isStreaming ? "stop.fill" : (chatMode == .agent ? "hammer.fill" : "arrow.up"))
+                    // Icon stays consistent between Ask and Agent — background color signals the mode.
+                    Image(systemName: isStreaming ? "stop.circle" : "arrow.up")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.white)
                         .frame(width: 36, height: 36)
@@ -157,7 +153,7 @@ struct ComposerView: View {
                         .clipShape(Circle())
                 }
                 .buttonStyle(PlainButtonStyle())
-                .disabled(!isStreaming && (messageText.isEmpty && attachedFiles.isEmpty || (chatMode == .agent && !hasWorkspace)))
+                .disabled(!isStreaming && ((messageText.isEmpty && attachedFiles.isEmpty && pastedCode == nil) || (chatMode == .agent && !hasWorkspace)))
                 .keyboardShortcut(.return, modifiers: [.command])
             }
             .padding(.horizontal, HermesSpacing.lg)
@@ -171,6 +167,16 @@ struct ComposerView: View {
         ) { result in
             handleFileImport(result)
         }
+        .sheet(isPresented: $showPasteCodeSheet) {
+            PasteCodeSheet(initialCode: pastedCode ?? "") { code in
+                pastedCode = code.isEmpty ? nil : code
+            }
+        }
+        .sheet(isPresented: $showSkillsSheet) {
+            if let rid = roomId {
+                RoomSkillsSheet(roomId: rid)
+            }
+        }
         .onChange(of: speechRecognizer.isRecording) {
             if !speechRecognizer.isRecording {
                 isListening = false
@@ -180,11 +186,47 @@ struct ComposerView: View {
             }
         }
     }
+
+    // MARK: - Plus Menu (Paste Code / Upload File / Add Skill)
+    private var plusMenu: some View {
+        Menu {
+            Button {
+                showPasteCodeSheet = true
+            } label: {
+                Label("Paste Code", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+            Button {
+                showFilePicker = true
+            } label: {
+                Label("Upload File", systemImage: "arrow.up.doc")
+            }
+            if roomId != nil {
+                Button {
+                    showSkillsSheet = true
+                } label: {
+                    Label("Room Skills", systemImage: "book.closed")
+                }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(.hermes.muted)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(isStreaming || isRateLimited)
+    }
     
     // MARK: - Attached Files Bar
     private var attachedFilesBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: HermesSpacing.sm) {
+                if let code = pastedCode {
+                    pastedCodeChip(preview: code)
+                }
                 ForEach(attachedFiles) { file in
                     fileChip(file)
                 }
@@ -223,11 +265,43 @@ struct ComposerView: View {
                 .strokeBorder(Color.hermes.border, lineWidth: 1)
         )
     }
+
+    private func pastedCodeChip(preview: String) -> some View {
+        HStack(spacing: HermesSpacing.xs) {
+            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                .font(.system(size: 11))
+                .foregroundColor(.purple)
+            Text("Code snippet (\(preview.count) chars)")
+                .font(.hermes.caption)
+                .foregroundColor(.hermes.text)
+                .lineLimit(1)
+            Button(action: { showPasteCodeSheet = true }) {
+                Image(systemName: "pencil")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(.hermes.muted)
+            }
+            .buttonStyle(PlainButtonStyle())
+            Button(action: { pastedCode = nil }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.hermes.muted)
+            }
+            .buttonStyle(PlainButtonStyle())
+        }
+        .padding(.horizontal, HermesSpacing.sm)
+        .padding(.vertical, HermesSpacing.xs)
+        .background(Color.purple.opacity(0.08))
+        .cornerRadius(HermesRadius.sm)
+        .overlay(
+            RoundedRectangle(cornerRadius: HermesRadius.sm)
+                .strokeBorder(Color.purple.opacity(0.3), lineWidth: 1)
+        )
+    }
     
     // MARK: - Rate Limit Inline
     private var rateLimitInline: some View {
         HStack(spacing: HermesSpacing.sm) {
-            Image(systemName: "clock.fill")
+            Image(systemName: "clock")
                 .font(.system(size: 10))
                 .foregroundColor(.hermes.warning)
             Text(rateLimitMessage ?? "Rate limited — please wait")
@@ -244,7 +318,7 @@ struct ComposerView: View {
     private var sendButtonColor: Color {
         if isStreaming { return .hermes.danger }
         if isRateLimited || (chatMode == .agent && !hasWorkspace) { return .hermes.muted.opacity(0.4) }
-        if messageText.isEmpty && attachedFiles.isEmpty { return .hermes.muted.opacity(0.4) }
+        if messageText.isEmpty && attachedFiles.isEmpty && pastedCode == nil { return .hermes.muted.opacity(0.4) }
         return chatMode == .agent ? .orange : .hermes.accent
     }
     
@@ -278,23 +352,25 @@ struct ComposerView: View {
     
     private func handleSend() {
         let text = messageText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty || !attachedFiles.isEmpty else { return }
+        guard !text.isEmpty || !attachedFiles.isEmpty || pastedCode != nil else { return }
         
-        var fullMessage = text
-        
+        var fullMessage = text.isEmpty ? "Please analyze the attached content." : text
+
+        // Append pasted code as a fenced block so the backend/model treats it as code context.
+        if let code = pastedCode, !code.isEmpty {
+            fullMessage += "\n\n```\n\(code)\n```"
+        }
+
         // Append file references
         if !attachedFiles.isEmpty {
             let fileList = attachedFiles.map { "📎 \($0.name)" }.joined(separator: "\n")
-            if fullMessage.isEmpty {
-                fullMessage = fileList
-            } else {
-                fullMessage += "\n\nAttached:\n\(fileList)"
-            }
+            fullMessage += "\n\nAttached:\n\(fileList)"
         }
-        
+
         onSend?(fullMessage)
         messageText = ""
         attachedFiles.removeAll()
+        pastedCode = nil
         isFocused = true
     }
     
@@ -335,7 +411,7 @@ enum AttachedFileType: String {
     
     var icon: String {
         switch self {
-        case .pdf: return "doc.fill"
+        case .pdf: return "doc"
         case .text: return "doc.text"
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .document: return "doc.richtext"
@@ -367,13 +443,73 @@ enum AttachedFileType: String {
     }
 }
 
+// MARK: - Paste Code Sheet
+struct PasteCodeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let initialCode: String
+    let onSave: (String) -> Void
+    @State private var code: String = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Paste Code")
+                    .font(.hermes.h3)
+                    .foregroundColor(.hermes.text)
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(PlainButtonStyle())
+                    .foregroundColor(.hermes.muted)
+                Button {
+                    onSave(code.trimmingCharacters(in: .whitespacesAndNewlines))
+                    dismiss()
+                } label: {
+                    Text("Attach").font(.hermes.bodyMedium).foregroundColor(.white)
+                        .padding(.horizontal, HermesSpacing.md).padding(.vertical, HermesSpacing.sm)
+                        .background(Color.hermes.accent).cornerRadius(HermesRadius.sm)
+                }
+                .buttonStyle(PlainButtonStyle())
+                .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .opacity(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
+            }
+            .padding(HermesSpacing.lg)
+            .background(Color.hermes.surface)
+
+            Divider().foregroundColor(.hermes.border)
+
+            Text("Paste your code snippet. It will be attached to your message as a fenced code block.")
+                .font(.hermes.caption)
+                .foregroundColor(.hermes.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, HermesSpacing.lg)
+                .padding(.top, HermesSpacing.md)
+
+            TextEditor(text: $code)
+                .font(.hermes.mono)
+                .foregroundColor(.hermes.text)
+                .scrollContentBackground(.hidden)
+                .padding(HermesSpacing.md)
+                .background(Color.hermes.bg)
+                .cornerRadius(HermesRadius.md)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HermesRadius.md)
+                        .strokeBorder(Color.hermes.border, lineWidth: 1)
+                )
+                .padding(HermesSpacing.lg)
+        }
+        .frame(minWidth: 480, minHeight: 400)
+        .background(Color.hermes.bg)
+        .onAppear { code = initialCode }
+    }
+}
+
 #Preview {
     struct PreviewWrapper: View {
         @State var autoSpeak = false
         var body: some View {
             VStack {
                 Spacer()
-                ComposerView(isAutoSpeakEnabled: $autoSpeak)
+                ComposerView(roomId: "1", isAutoSpeakEnabled: $autoSpeak)
             }
             .background(Color.hermes.bg)
         }

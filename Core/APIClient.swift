@@ -22,6 +22,18 @@ enum HTTPMethod: String {
 struct APIClient {
     static let shared = APIClient()
     private let session = URLSession.shared
+    
+    /// Dedicated session for SSE streaming with longer timeouts and connection reuse
+    static let streamingSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 600
+        config.httpMaximumConnectionsPerHost = 4
+        config.waitsForConnectivity = true
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+    
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.keyDecodingStrategy = .convertFromSnakeCase
@@ -258,6 +270,116 @@ extension APIClient {
     }
 }
 
+// MARK: - Room Skills Endpoints
+
+extension APIClient {
+    /// List all skills for a given room.
+    func fetchSkills(roomId: String) async throws -> [RoomSkillResponse] {
+        let url = URL(string: "\(APIConfig.baseURL)/chat/rooms/\(roomId)/skills")!
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = APIConfig.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let wrapper = try decoder.decode(RoomSkillListResponse.self, from: data)
+        return wrapper.skills ?? []
+    }
+
+    /// Create a manual (text) skill for a room.
+    func createSkillManual(roomId: String, title: String, content: String) async throws -> RoomSkillResponse {
+        let url = URL(string: "\(APIConfig.baseURL)/chat/rooms/\(roomId)/skills")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = APIConfig.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["title": title, "content": content])
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg = obj["error"] as? String ?? obj["message"] as? String {
+                throw APIError.server(msg)
+            }
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let wrapper = try decoder.decode(RoomSkillMutateResponse.self, from: data)
+        guard let skill = wrapper.skill else { throw APIError.server("Invalid response") }
+        return skill
+    }
+
+    /// Upload a .md/.txt file as a skill.
+    func createSkillFile(roomId: String, title: String, fileData: Data, fileName: String, mimeType: String) async throws -> RoomSkillResponse {
+        let url = URL(string: "\(APIConfig.baseURL)/chat/rooms/\(roomId)/skills")!
+        let boundary = UUID().uuidString
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = APIConfig.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+        var body = Data()
+        for (key, value) in ["title": title] {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        req.httpBody = body
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg = obj["error"] as? String ?? obj["message"] as? String {
+                throw APIError.server(msg)
+            }
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let wrapper = try decoder.decode(RoomSkillMutateResponse.self, from: data)
+        guard let skill = wrapper.skill else { throw APIError.server("Invalid response") }
+        return skill
+    }
+
+    /// Toggle a skill's active state. Returns the new active flag.
+    @discardableResult
+    func toggleSkill(roomId: String, skillId: Int) async throws -> Bool {
+        let url = URL(string: "\(APIConfig.baseURL)/chat/rooms/\(roomId)/skills/\(skillId)/toggle")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = APIConfig.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        let wrapper = try decoder.decode(RoomSkillToggleResponse.self, from: data)
+        return wrapper.isActive ?? false
+    }
+
+    /// Delete a skill.
+    func deleteSkill(roomId: String, skillId: Int) async throws {
+        let url = URL(string: "\(APIConfig.baseURL)/chat/rooms/\(roomId)/skills/\(skillId)")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = APIConfig.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+
+        let (_, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+    }
+}
+
 // MARK: - Dashboard Endpoints
 
 extension APIClient {
@@ -429,6 +551,38 @@ struct MessageResponse: Decodable, Identifiable {
     let satisfactionScore: Int?
     let tokensUsed: Int?
     let createdAt: String?
+}
+
+// Room Skills
+struct RoomSkillResponse: Decodable, Identifiable, Equatable {
+    let id: Int
+    let roomId: Int?
+    let title: String
+    let content: String?
+    let sourceType: String?          // "manual_input" | "file_upload"
+    let originalFilename: String?
+    let isActive: Bool?
+    let createdAt: String?
+    let updatedAt: String?
+
+    var isManual: Bool { (sourceType ?? "manual_input") == "manual_input" }
+}
+
+struct RoomSkillListResponse: Decodable {
+    let status: String?
+    let skills: [RoomSkillResponse]?
+}
+
+struct RoomSkillMutateResponse: Decodable {
+    let status: String?
+    let message: String?
+    let skill: RoomSkillResponse?
+}
+
+struct RoomSkillToggleResponse: Decodable {
+    let status: String?
+    let isActive: Bool?
+    let message: String?
 }
 
 // Dashboard

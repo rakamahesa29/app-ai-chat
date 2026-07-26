@@ -26,7 +26,7 @@ struct KnowledgeGraphView: View {
                 }
                 if let err = errorText {
                     HStack(spacing: HermesSpacing.sm) {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.hermes.warning)
+                        Image(systemName: "exclamationmark.triangle").foregroundColor(.hermes.warning)
                         Text(err).font(.hermes.caption).foregroundColor(.hermes.warning)
                     }.padding(HermesSpacing.md).background(Color.hermes.warning.opacity(0.1)).cornerRadius(HermesRadius.md)
                 }
@@ -35,10 +35,10 @@ struct KnowledgeGraphView: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: HermesSpacing.md) {
                     MiniStatCard(title: "Total Nodes", value: "\(stats?.totalNodes ?? 0)", icon: "circle.dotted", color: .indigo)
                     MiniStatCard(title: "Total Edges", value: "\(stats?.totalEdges ?? 0)", icon: "arrow.triangle.branch", color: .purple)
-                    MiniStatCard(title: "Tokens Saved", value: fmt(stats?.totalTokensSaved), icon: "bolt.fill", color: .green)
+                    MiniStatCard(title: "Tokens Saved", value: fmt(stats?.totalTokensSaved), icon: "bolt", color: .green)
                     MiniStatCard(title: "Avg Degree", value: stats?.avgDegree.map{String(format:"%.1f",$0)} ?? "--", icon: "network", color: .hermes.accent)
                     MiniStatCard(title: "Rooms", value: "\(stats?.roomsWithGraphs ?? 0)", icon: "square.stack.3d.up", color: .orange)
-                    MiniStatCard(title: "Indexed", value: stats?.indexProgress.map{"\(Int($0))%"} ?? "--", icon: "chart.bar.fill", color: .blue)
+                    MiniStatCard(title: "Indexed", value: stats?.indexProgress.map{"\(Int($0))%"} ?? "--", icon: "chart.bar", color: .blue)
                 }
 
                 // vis.js graph (identical to web dashboard)

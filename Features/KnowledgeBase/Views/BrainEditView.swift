@@ -84,7 +84,7 @@ struct BrainEditView: View {
                                         action: { inputType = .text }
                                     )
                                     TypeButton(
-                                        icon: "doc.fill",
+                                        icon: "doc",
                                         label: "PDF Upload",
                                         isSelected: inputType == .pdf,
                                         action: { inputType = .pdf }
@@ -120,7 +120,7 @@ struct BrainEditView: View {
                                         RoundedRectangle(cornerRadius: HermesRadius.md)
                                             .fill(Color.red.opacity(0.1))
                                             .frame(width: 48, height: 48)
-                                        Image(systemName: "doc.fill")
+                                        Image(systemName: "doc")
                                             .foregroundColor(.red)
                                     }
                                     
@@ -148,7 +148,7 @@ struct BrainEditView: View {
                             
                             HermesButton(
                                 title: "Save Changes",
-                                icon: "checkmark.circle.fill",
+                                icon: "checkmark.circle",
                                 isDisabled: title.isEmpty || (inputType == .text && content.isEmpty),
                                 action: saveDocument
                             )

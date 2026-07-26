@@ -38,7 +38,7 @@ struct BrainManagerView: View {
                 
                 Spacer()
                 
-                HermesButton(title: "Add Knowledge", icon: "plus.circle.fill", size: .small, action: {
+                HermesButton(title: "Add Knowledge", icon: "plus.circle", size: .small, action: {
                     showCreateView = true
                 })
                 .fixedSize()

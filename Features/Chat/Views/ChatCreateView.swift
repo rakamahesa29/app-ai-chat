@@ -21,7 +21,8 @@ struct ChatCreateView: View {
         "bestie": "The Bestie (Casual & Fun Lifestyle)",
         "sage": "The Sage (Empathetic & Meaningful)",
         "executive": "The Executive (Formal & Business)",
-        "education": "The Educator (Academic & Structured)"
+        "education": "The Educator (Academic & Structured)",
+        "swift-developer": "Swift Architect (SwiftUI & Laravel)"
     ]
     
     let models: [String: String] = [
@@ -71,7 +72,7 @@ struct ChatCreateView: View {
                             
                             // Info
                             HStack(alignment: .top, spacing: HermesSpacing.md) {
-                                Image(systemName: "info.circle.fill")
+                                Image(systemName: "info.circle")
                                     .foregroundColor(.hermes.accent)
                                     .padding(HermesSpacing.sm)
                                     .background(Color.hermes.accent.opacity(0.1))

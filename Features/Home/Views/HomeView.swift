@@ -32,7 +32,7 @@ struct HomeView: View {
                         
                         // CTA Buttons
                         HStack(spacing: HermesSpacing.md) {
-                            HermesButton(title: "Get Started", icon: "bolt.fill", action: { showRegister = true })
+                            HermesButton(title: "Get Started", icon: "bolt", action: { showRegister = true })
                                 .fixedSize()
                             
                             HermesButton(title: "Learn More", icon: "info.circle", style: .secondary, action: {})
@@ -44,19 +44,19 @@ struct HomeView: View {
                     // MARK: - Features Grid
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: HermesSpacing.lg)], spacing: HermesSpacing.lg) {
                         FeatureCard(
-                            icon: "hare.fill",
+                            icon: "hare",
                             iconColor: .blue,
                             title: "Fast Performance",
                             description: "Optimized to run smoothly on local machines with minimal latency."
                         )
                         FeatureCard(
-                            icon: "checkmark.shield.fill",
+                            icon: "checkmark.shield",
                             iconColor: .purple,
                             title: "Data Privacy",
                             description: "Your local data stays on your machine when using Ollama integration."
                         )
                         FeatureCard(
-                            icon: "cloud.fill",
+                            icon: "cloud",
                             iconColor: .green,
                             title: "Cloud Ready",
                             description: "Seamless switching between local models and premium Cloud APIs."

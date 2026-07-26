@@ -28,7 +28,7 @@ struct RegisterView: View {
                         VStack(spacing: HermesSpacing.lg) {
                             if let error = appState.errorMessage {
                                 HStack(spacing: HermesSpacing.sm) {
-                                    Image(systemName: "exclamationmark.circle.fill")
+                                    Image(systemName: "exclamationmark.circle")
                                     Text(error)
                                 }
                                 .font(.hermes.caption).foregroundColor(.hermes.danger)

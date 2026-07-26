@@ -20,8 +20,8 @@ enum BrainDocumentType: String {
     
     var icon: String {
         switch self {
-        case .text: return "doc.text.fill"
-        case .pdf: return "doc.richtext.fill"
+        case .text: return "doc.text"
+        case .pdf: return "doc.richtext"
         }
     }
 }

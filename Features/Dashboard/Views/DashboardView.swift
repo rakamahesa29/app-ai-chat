@@ -49,7 +49,7 @@ struct DashboardView: View {
                                 .onChange(of: isOllamaEnabled) { toggleProvider("ollama", enabled: isOllamaEnabled) }
                             HermesToggleRow(title: "Ollama (Gemma4 31B Cloud)", subtitle: "Cloud", icon: "server.rack", iconColor: .cyan, isOn: $isOllamaCloudEnabled)
                                 .onChange(of: isOllamaCloudEnabled) { toggleProvider("ollama_cloud", enabled: isOllamaCloudEnabled) }
-                            HermesToggleRow(title: "DeepSeek API", subtitle: "Premium", icon: "cloud.fill", iconColor: .purple, isOn: $isDeepSeekEnabled)
+                            HermesToggleRow(title: "DeepSeek API", subtitle: "Premium", icon: "cloud", iconColor: .purple, isOn: $isDeepSeekEnabled)
                                 .onChange(of: isDeepSeekEnabled) { toggleProvider("deepseek", enabled: isDeepSeekEnabled) }
                         }
                     }
@@ -59,8 +59,8 @@ struct DashboardView: View {
                 LazyVGrid(columns: statsColumns, spacing: HermesSpacing.lg) {
                     DashboardStatCard(title: "Avg. Memory", value: String(format: "%.0f", stats?.avgMemoryKb ?? 32450), unit: "KB", icon: "internaldrive", iconColor: .hermes.accent)
                     DashboardStatCard(title: "Bot Tokens/Msg", value: "\(stats?.avgBotTokens ?? 452)", unit: "tk", icon: "cpu", iconColor: .blue)
-                    DashboardStatCard(title: "User Tokens/Msg", value: "\(stats?.avgUserTokens ?? 128)", unit: "tk", icon: "person.fill", iconColor: .hermes.accent)
-                    DashboardStatCard(title: "Success Rate", value: "\(stats?.successRate ?? 98)", unit: "%", icon: "checkmark.circle.fill", iconColor: .hermes.success)
+                    DashboardStatCard(title: "User Tokens/Msg", value: "\(stats?.avgUserTokens ?? 128)", unit: "tk", icon: "person", iconColor: .hermes.accent)
+                    DashboardStatCard(title: "Success Rate", value: "\(stats?.successRate ?? 98)", unit: "%", icon: "checkmark.circle", iconColor: .hermes.success)
                 }
                 
                 // Charts Row
@@ -141,7 +141,7 @@ struct DashboardView: View {
                         
                         // Insight Card
                         HStack(alignment: .top, spacing: HermesSpacing.md) {
-                            Image(systemName: "lightbulb.fill")
+                            Image(systemName: "lightbulb")
                                 .foregroundColor(.hermes.accent)
                                 .padding(HermesSpacing.sm)
                                 .background(Color.hermes.accent.opacity(0.1))

@@ -13,7 +13,7 @@ struct ChatRoomView: View {
     @State private var isDeepSeekPro = false
     @State private var isSkripsiMode = false
     @State private var isWebSearchEnabled = false
-    @State private var memoryUsed = 4
+    @State private var memoryUsed = 0
     @State private var memoryMax = 10
     @State private var isRateLimited = false
     @State private var rateLimitMessage: String?
@@ -28,10 +28,23 @@ struct ChatRoomView: View {
     @State private var isAutoSpeakEnabled = false
     @State private var agentProcessingText = ""
     @State private var agentTurnCount = 0
+    // Cursor-CLI style running activity log for the current agent turn.
+    @State private var agentLog: [AgentLogEvent] = []
+    @State private var isAgentLogExpanded: Bool = true
     
     enum ChatMode: String, CaseIterable {
         case ask = "Ask", agent = "Agent"
         var icon: String { self == .ask ? "bubble.left.and.bubble.right" : "hammer" }
+    }
+
+    // MARK: - Agent Log
+    struct AgentLogEvent: Identifiable, Equatable {
+        let id = UUID()
+        let time: Date
+        let level: Level
+        let icon: String
+        let text: String
+        enum Level { case info, thinking, tool, success, warn, error }
     }
     
     var isEducationRoom: Bool { room.persona == "education" }
@@ -45,20 +58,30 @@ struct ChatRoomView: View {
                 ScrollView {
                     VStack(spacing: HermesSpacing.lg) {
                         ForEach(messages) { msg in messageRow(for: msg).id(msg.id) }
+                        // Inline Cursor-CLI-style agent activity log — appears above the streaming reply
+                        if chatMode == .agent && !agentLog.isEmpty {
+                            agentActivityBlock.id("agent_log")
+                        }
                         if isStreaming { streamingBubble.id("streaming") }
                         if isRateLimited { rateLimitBanner.id("rate_limit") }
                         if isStreaming {
                             Button(action: stopStreaming) {
-                                Label("Stop", systemImage: "stop.circle.fill").font(.hermes.caption)
+                                Label("Stop", systemImage: "stop.circle").font(.hermes.caption)
                             }.foregroundColor(.hermes.danger).padding(.horizontal).id("stop_btn")
                         }
                     }.padding(.horizontal, HermesSpacing.lg).padding(.vertical, HermesSpacing.lg)
                 }
                 .onAppear { scrollProxy = proxy }
                 .onChange(of: messages.count) { scrollToBottom() }
-                .onChange(of: streamingText) { scrollToBottom() }
+                // Only follow streaming text while the reply is actually being
+                // built up. Ignoring the trailing "" reset avoids a redundant
+                // animated scroll at completion time (part of the flicker fix).
+                .onChange(of: streamingText) { _, new in
+                    if isStreaming && !new.isEmpty { scrollToBottom() }
+                }
+                .onChange(of: agentLog.count) { scrollToBottom() }
             }
-            ComposerView(onSend: sendMessage, isStreaming: isStreaming, isRateLimited: isRateLimited, rateLimitMessage: rateLimitMessage, chatMode: chatMode, hasWorkspace: agentWorkspaceURL != nil, isAutoSpeakEnabled: $isAutoSpeakEnabled)
+            ComposerView(roomId: room.id, onSend: sendMessage, isStreaming: isStreaming, isRateLimited: isRateLimited, rateLimitMessage: rateLimitMessage, chatMode: chatMode, hasWorkspace: agentWorkspaceURL != nil, isAutoSpeakEnabled: $isAutoSpeakEnabled)
             statusBar
         }
         .background(Color.hermes.bg)
@@ -100,17 +123,125 @@ struct ChatRoomView: View {
     
     private var agentCompactBar: some View {
         HStack(spacing: HermesSpacing.sm) {
-            Image(systemName: "hammer.fill").font(.system(size: 11)).foregroundColor(.hermes.accent)
+            Image(systemName: "hammer").font(.system(size: 11)).foregroundColor(.hermes.accent)
             Text("Select workspace folder for agent").font(.hermes.caption).foregroundColor(.hermes.muted)
             Spacer()
-            Button("Choose…") { openWorkspacePicker() }
-                .font(.hermes.captionMedium).foregroundColor(.hermes.accent)
-                .padding(.horizontal, HermesSpacing.sm).padding(.vertical, 2)
-                .background(Color.hermes.accent.opacity(0.1)).cornerRadius(HermesRadius.sm)
+            // PlainButtonStyle strips the platform default button chrome so only our
+            // accent-tinted background remains (avoids the "double background" glitch).
+            Button(action: { openWorkspacePicker() }) {
+                Text("Choose…")
+                    .font(.hermes.captionMedium)
+                    .foregroundColor(.hermes.accent)
+                    .padding(.horizontal, HermesSpacing.sm)
+                    .padding(.vertical, 3)
+                    .background(Color.hermes.accent.opacity(0.12))
+                    .cornerRadius(HermesRadius.sm)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
         }
         .padding(.horizontal, HermesSpacing.lg).padding(.vertical, HermesSpacing.sm)
         .background(Color.hermes.surface)
         .overlay(alignment: .top) { Divider().foregroundColor(.hermes.border) }
+    }
+
+    // MARK: - Inline Agent Activity Log (Cursor CLI style)
+    private var agentActivityBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isAgentLogExpanded.toggle() }
+            } label: {
+                HStack(spacing: HermesSpacing.sm) {
+                    Image(systemName: isStreaming ? "circle.dotted" : "checkmark.circle")
+                        .font(.system(size: 11))
+                        .foregroundColor(isStreaming ? .hermes.accent : .hermes.success)
+                        .rotationEffect(.degrees(isStreaming ? 360 : 0))
+                        .animation(isStreaming ? .linear(duration: 1.4).repeatForever(autoreverses: false) : .default, value: isStreaming)
+                    Text("Agent Activity")
+                        .font(.hermes.caption)
+                        .foregroundColor(.hermes.text)
+                    Text("· \(agentLog.count) event\(agentLog.count == 1 ? "" : "s")")
+                        .font(.hermes.caption)
+                        .foregroundColor(.hermes.muted)
+                    Spacer()
+                    Image(systemName: isAgentLogExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 9))
+                        .foregroundColor(.hermes.muted)
+                }
+                .padding(.horizontal, HermesSpacing.md)
+                .padding(.vertical, HermesSpacing.sm)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+
+            if isAgentLogExpanded {
+                Divider().foregroundColor(.hermes.border)
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(agentLog) { event in
+                        agentLogRow(event)
+                    }
+                }
+                .padding(.horizontal, HermesSpacing.md)
+                .padding(.vertical, HermesSpacing.sm)
+            }
+        }
+        .background(Color.hermes.card.opacity(0.6))
+        .cornerRadius(HermesRadius.md)
+        .overlay(
+            RoundedRectangle(cornerRadius: HermesRadius.md)
+                .strokeBorder(Color.hermes.border.opacity(0.6), lineWidth: 1)
+        )
+        .opacity(0.9)
+    }
+
+    private func agentLogRow(_ event: AgentLogEvent) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text(Self.logTimeFormatter.string(from: event.time))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundColor(.hermes.muted.opacity(0.7))
+                .frame(width: 52, alignment: .leading)
+            Image(systemName: event.icon)
+                .font(.system(size: 9))
+                .foregroundColor(agentLogColor(event.level))
+                .frame(width: 12, alignment: .center)
+            Text(event.text)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.hermes.text.opacity(0.85))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func agentLogColor(_ level: AgentLogEvent.Level) -> Color {
+        switch level {
+        case .info:     return .hermes.muted
+        case .thinking: return .hermes.accent
+        case .tool:     return .orange
+        case .success:  return .hermes.success
+        case .warn:     return .hermes.warning
+        case .error:    return .hermes.danger
+        }
+    }
+
+    private static let logTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    @MainActor
+    private func logAgent(_ text: String, level: AgentLogEvent.Level = .info, icon: String? = nil) {
+        let defaultIcon: String = {
+            switch level {
+            case .info:     return "info.circle"
+            case .thinking: return "brain"
+            case .tool:     return "hammer"
+            case .success:  return "checkmark.circle"
+            case .warn:     return "exclamationmark.triangle"
+            case .error:    return "xmark.octagon"
+            }
+        }()
+        agentLog.append(AgentLogEvent(time: Date(), level: level, icon: icon ?? defaultIcon, text: text))
     }
     
     private var agentProcessingBar: some View {
@@ -129,7 +260,7 @@ struct ChatRoomView: View {
     
     private var rateLimitBanner: some View {
         HStack(spacing: HermesSpacing.sm) {
-            Image(systemName: "clock.fill").foregroundColor(.hermes.warning).font(.system(size: 12))
+            Image(systemName: "clock").foregroundColor(.hermes.warning).font(.system(size: 12))
             Text(rateLimitMessage ?? "Please wait…").font(.hermes.caption).foregroundColor(.hermes.warning)
         }.padding(HermesSpacing.md).background(Color.hermes.warning.opacity(0.08)).cornerRadius(HermesRadius.md)
     }
@@ -138,7 +269,7 @@ struct ChatRoomView: View {
         HStack(spacing: HermesSpacing.md) {
             statusItem(icon: "cpu", text: modelLabel)
             statusItem(icon: "person.circle", text: personaLabel(room.persona))
-            if chatMode == .agent, let ws = agentWorkspaceURL { statusItem(icon: "hammer.fill", text: ws.lastPathComponent, color: .hermes.accent) }
+            if chatMode == .agent, let ws = agentWorkspaceURL { statusItem(icon: "hammer", text: ws.lastPathComponent, color: .hermes.accent) }
             Spacer()
             Button(action: { withAnimation { chatMode = chatMode == .ask ? .agent : .ask } }) {
                 HStack(spacing: 3) { Image(systemName: chatMode.icon).font(.system(size: 9)); Text(chatMode.rawValue) }
@@ -176,7 +307,7 @@ struct ChatRoomView: View {
                         IconBtn("hand.thumbsdown", active: msg.rating == .down, color: .hermes.danger) { rate(msg, .down) }
                         IconBtn("doc.on.doc") { copy(msg) }
                         let spk = speechSynth.isSpeaking
-                        IconBtn(spk ? "speaker.wave.2.fill" : "speaker.wave.1",
+                        IconBtn(spk ? "speaker.wave.2" : "speaker.wave.1",
                                 color: spk ? .hermes.accent : .hermes.muted) {
                             if speechSynth.isSpeaking { speechSynth.stop() }
                             else { speechSynth.speak(speakableText(msg.content), messageId: msg.id) }
@@ -193,7 +324,7 @@ struct ChatRoomView: View {
     }
     
     private func IconBtn(_ icon: String, active: Bool = false, color: Color = .hermes.muted, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: active ? "\(icon).fill" : icon).font(.system(size: 11)).foregroundColor(active ? color : .hermes.muted) }.buttonStyle(PlainButtonStyle())
+        Button(action: action) { Image(systemName: icon).font(.system(size: 11)).foregroundColor(active ? color : .hermes.muted) }.buttonStyle(PlainButtonStyle())
     }
     
     private var streamingBubble: some View {
@@ -242,7 +373,14 @@ struct ChatRoomView: View {
     // API
     private func fetchMessages() async {
         isLoadingMessages = true
-        do { messages = try await APIClient.shared.fetchMessages(roomId: room.id).map { ChatMessage(id: String($0.id), content: $0.content, isUser: $0.senderType == "user") } }
+        do {
+            messages = try await APIClient.shared.fetchMessages(roomId: room.id).map {
+                ChatMessage(id: String($0.id), content: $0.content, isUser: $0.senderType == "user")
+            }
+            // Derive the memory counter from real history (was hardcoded to 4 before).
+            let userCount = messages.filter { $0.isUser }.count
+            memoryUsed = min(userCount, memoryMax)
+        }
         catch { print("Fetch msgs: \(error)") }
         isLoadingMessages = false
     }
@@ -260,6 +398,16 @@ struct ChatRoomView: View {
         withAnimation { messages.append(um) }
         if memoryUsed < memoryMax { memoryUsed += 1 }
         isStreaming = true; streamingText = ""
+        // continueAgent handles its own completion (append + isStreaming=false).
+        // We set this to true before delegating so sendMessage's outer
+        // completion block skips re-doing the same work.
+        var didHandOffToContinue = false
+        // Reset agent activity log for this new turn (only shown in agent mode).
+        if chatMode == .agent {
+            agentLog.removeAll()
+            isAgentLogExpanded = true
+            logAgent("Sending request to agent…", level: .info, icon: "paperplane")
+        }
         let url = APIClient.shared.sendMessageStreamURL(roomId: room.id)
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -272,7 +420,7 @@ struct ChatRoomView: View {
             defer { streamingTask = nil }
             do {
                 print("📡 [SSE] Connecting to: \(url)"); print("📡 [SSE] Model: \(selectedModel)")
-                let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                let (bytes, response) = try await APIClient.streamingSession.bytes(for: req)
                 print("📡 [SSE] Connected: \((response as? HTTPURLResponse)?.statusCode ?? 0)")
                 
                 var agentStateToken: String? = nil
@@ -286,6 +434,7 @@ struct ChatRoomView: View {
                     if let type = o["type"] as? String, type == "meta" {
                         if let s = o["status"] as? String {
                             print("📡 [SSE] meta: \(s)")
+                            handleAgentMetaEvent(s, payload: o)
                             if s == "searching_internal" { streamingText = "Searching..." }
                             else if s == "using_model_knowledge" { streamingText = "" }
                             else if s == "agent_tool_requests" {
@@ -311,21 +460,25 @@ struct ChatRoomView: View {
                             print("📡 [Agent] Executing \(requests.count) tools locally (turn \(agentTurnCount))...")
                             let results = executeAgentTools(requests, workspace: agentWorkspaceURL)
                             print("📡 [Agent] Tools done, continuing with token: \(token.prefix(8))...")
+                            didHandOffToContinue = true
                             await continueAgent(token: token, results: results)
                         }
                         print("📡 [SSE] done"); break
                     }
                 }
-            } catch { if !Task.isCancelled { print("📡 [SSE] error: \(error)"); streamingText = "Error: \(error.localizedDescription)" } }
-            if !Task.isCancelled {
-                print("📡 [SSE] Done. Response length: \(full.count)")
-                isStreaming = false; agentProcessingText = ""
-                if !full.isEmpty {
-                    let botMsg = ChatMessage(content: full, isUser: false, hasReasoning: isDeepSeekPro)
-                    withAnimation { messages.append(botMsg) }
-                    if isAutoSpeakEnabled { speechSynth.speak(speakableText(full), messageId: botMsg.id) }
+            } catch {
+                if !Task.isCancelled {
+                    print("📡 [SSE] error: \(error)")
+                    streamingText = "Error: \(error.localizedDescription)"
+                    if chatMode == .agent { logAgent("stream error: \(error.localizedDescription)", level: .error) }
                 }
-                if !streamingText.hasPrefix("Error") && !streamingText.hasPrefix("⚠️") { streamingText = "" }; if memoryUsed >= memoryMax { memoryUsed = 2 }
+            }
+            if !Task.isCancelled && !didHandOffToContinue {
+                print("📡 [SSE] Done. Response length: \(full.count)")
+                finalizeReply(full: full)
+                if chatMode == .agent && !agentLog.isEmpty {
+                    logAgent("done (\(full.count) chars)", level: .success, icon: "flag.checkered")
+                }
             }
         }
     }
@@ -403,12 +556,14 @@ struct ChatRoomView: View {
                     if exists {
                         print("✅ [Agent] Written: \(fullPath.path) (\(size) bytes)")
                         results.append(["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path) (\(size) bytes)"])
+                        Task { @MainActor in logAgent("wrote \(path) (\(size) B)", level: .success) }
                     } else {
                         // FileManager reported success but file doesn't exist — try shell
                         print("⚠️ [Agent] FileManager wrote but file missing, trying shell...")
                         try writeViaShell(fullPath: fullPath, content: content ?? "")
                         print("✅ [Agent] Shell wrote: \(fullPath.path)")
                         results.append(["tool": "write_file", "path": path, "status": "success", "message": "File created via shell: \(path)"])
+                        Task { @MainActor in logAgent("wrote \(path) (via shell)", level: .success) }
                     }
                 } catch {
                     // FileManager failed — try shell fallback
@@ -417,9 +572,11 @@ struct ChatRoomView: View {
                         try writeViaShell(fullPath: fullPath, content: content ?? "")
                         print("✅ [Agent] Shell fallback wrote: \(fullPath.path)")
                         results.append(["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path)"])
+                        Task { @MainActor in logAgent("wrote \(path) (via shell fallback)", level: .success) }
                     } catch {
                         print("❌ [Agent] Shell also failed: \(error.localizedDescription)")
                         results.append(["tool": "write_file", "path": path, "status": "error", "message": "Write failed: \(error.localizedDescription)"])
+                        Task { @MainActor in logAgent("write failed: \(path) — \(error.localizedDescription)", level: .error) }
                     }
                 }
             case "read_file":
@@ -427,18 +584,22 @@ struct ChatRoomView: View {
                     let data = try String(contentsOf: fullPath, encoding: .utf8)
                     print("📖 [Agent] Read: \(path) (\(data.count) chars)")
                     results.append(["tool": "read_file", "path": path, "status": "success", "message": "Read \(data.count) chars", "content": data])
+                    Task { @MainActor in logAgent("read \(path) (\(data.count) chars)", level: .success) }
                 } catch {
                     print("❌ [Agent] Read failed: \(path) — \(error.localizedDescription)")
                     results.append(["tool": "read_file", "path": path, "status": "error", "message": "Cannot read: \(path)"])
+                    Task { @MainActor in logAgent("read failed: \(path)", level: .error) }
                 }
             case "delete_file":
                 do {
                     try FileManager.default.removeItem(at: fullPath)
                     print("🗑 [Agent] Deleted: \(fullPath.path)")
                     results.append(["tool": "delete_file", "path": path, "status": "success", "message": "Deleted: \(path)"])
+                    Task { @MainActor in logAgent("deleted \(path)", level: .success) }
                 } catch {
                     print("❌ [Agent] Delete failed: \(path) — \(error.localizedDescription)")
                     results.append(["tool": "delete_file", "path": path, "status": "error", "message": "Delete failed: \(error.localizedDescription)"])
+                    Task { @MainActor in logAgent("delete failed: \(path)", level: .error) }
                 }
             case "list_files":
                 if let items = try? FileManager.default.contentsOfDirectory(at: fullPath, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: .skipsHiddenFiles) {
@@ -448,25 +609,82 @@ struct ChatRoomView: View {
                         let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                         files.append(["name": item.lastPathComponent, "type": isDir ? "dir" : "file", "size": size as Any])
                     }
-                    print("📂 [Agent] Listed \(path): \(files.count) items")
-                    results.append(["tool": "list_files", "path": path, "status": "success", "message": "\(files.count) items", "files": files])
+                    let count = files.count
+                    print("📂 [Agent] Listed \(path): \(count) items")
+                    results.append(["tool": "list_files", "path": path, "status": "success", "message": "\(count) items", "files": files])
+                    Task { @MainActor in logAgent("listed \(path) (\(count) items)", level: .success) }
                 } else {
                     print("❌ [Agent] List failed: \(path)")
                     results.append(["tool": "list_files", "path": path, "status": "error", "message": "Cannot list: \(path)"])
+                    Task { @MainActor in logAgent("list failed: \(path)", level: .error) }
                 }
             default:
                 print("❌ [Agent] Unknown tool: \(tool)")
                 results.append(["tool": tool, "path": path, "status": "error", "message": "Unknown tool: \(tool)"])
+                Task { @MainActor in logAgent("unknown tool: \(tool)", level: .error) }
             }
         }
         // Restore generic label after batch completes
         agentProcessingText = "Sending results…"
+        Task { @MainActor in logAgent("Sending results back to AI…", level: .info, icon: "paperplane") }
         return results
     }
     
     private func toolLabel(_ tool: String, path: String) -> String {
         let icon = ["read_file":"📖 Reading","write_file":"✏️ Writing","delete_file":"🗑 Deleting","list_files":"📂 Listing"][tool] ?? "🔧 Running"
         return "\(icon) \(path)…"
+    }
+
+    /// Translate backend SSE meta events into human-readable log lines (Cursor CLI style).
+    @MainActor
+    private func handleAgentMetaEvent(_ status: String, payload: [String: Any]) {
+        guard chatMode == .agent else { return }
+        switch status {
+        case "agent_start":
+            let msg = (payload["message"] as? String) ?? "Agent started"
+            logAgent(msg, level: .info, icon: "play")
+        case "agent_thinking":
+            let iter = payload["iteration"] as? Int
+            logAgent(iter.map { "Thinking… (iteration \($0))" } ?? "Thinking…", level: .thinking)
+        case "agent_reasoning":
+            logAgent("Reasoning…", level: .thinking, icon: "brain.head.profile")
+        case "agent_tool_requests":
+            let n = (payload["requests"] as? [[String: Any]])?.count ?? 0
+            logAgent("Planned \(n) tool call\(n == 1 ? "" : "s")", level: .tool, icon: "list.bullet.rectangle")
+            if let reqs = payload["requests"] as? [[String: Any]] {
+                for r in reqs {
+                    let tool = r["tool"] as? String ?? "?"
+                    let path = r["path"] as? String ?? ""
+                    logAgent("→ \(tool)  \(path)", level: .tool, icon: iconFor(tool: tool))
+                }
+            }
+        case "agent_waiting":
+            logAgent("Awaiting client tool execution…", level: .info, icon: "hourglass")
+        case "agent_resumed":
+            let iter = payload["iteration"] as? Int
+            logAgent(iter.map { "Resumed (iteration \($0))" } ?? "Resumed", level: .info, icon: "arrow.clockwise")
+        case "agent_analyzing":
+            let msg = (payload["message"] as? String) ?? "Analyzing tool results…"
+            logAgent(msg, level: .thinking, icon: "sparkles")
+        case "searching_internal":
+            logAgent("Searching internal knowledge…", level: .info, icon: "magnifyingglass")
+        case "using_model_knowledge":
+            logAgent("Using model knowledge…", level: .info, icon: "brain")
+        default:
+            // Log any unrecognized backend status so nothing is silently dropped.
+            let msg = (payload["message"] as? String) ?? status
+            logAgent(msg, level: .info)
+        }
+    }
+
+    private func iconFor(tool: String) -> String {
+        switch tool {
+        case "write_file":  return "square.and.pencil"
+        case "read_file":   return "doc.text"
+        case "delete_file": return "trash"
+        case "list_files":  return "folder"
+        default:            return "hammer"
+        }
     }
     
     /// Fallback: write file via shell command (bypasses sandbox restrictions)
@@ -509,7 +727,7 @@ struct ChatRoomView: View {
         do {
             agentProcessingText = "Sending results to AI…"
             print("📡 [Agent:Continue] Sending \(results.count) results...")
-            let (bytes, response) = try await URLSession.shared.bytes(for: req)
+            let (bytes, response) = try await APIClient.streamingSession.bytes(for: req)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
             print("📡 [Agent:Continue] Connected: \(statusCode)")
             agentProcessingText = statusCode == 200 ? "Waiting for AI…" : "Server responded \(statusCode)"
@@ -529,6 +747,7 @@ struct ChatRoomView: View {
                 }
                 if let type = o["type"] as? String, type == "meta" {
                     if let s = o["status"] as? String {
+                        handleAgentMetaEvent(s, payload: o)
                         if s == "agent_tool_requests" {
                             agentStateToken = o["state_token"] as? String
                             agentRequests = o["requests"] as? [[String: Any]]
@@ -560,17 +779,43 @@ struct ChatRoomView: View {
                 print("📡 [Agent:Continue] error: \(error)")
                 streamingText = "Error: \(error.localizedDescription)"
                 agentProcessingText = ""
+                logAgent("continue error: \(error.localizedDescription)", level: .error)
             }
         }
         if !Task.isCancelled {
             print("📡 [Agent:Continue] Done. Response: \(full.count) chars")
-            isStreaming = false; agentProcessingText = ""
+            finalizeReply(full: full)
+            if !agentLog.isEmpty {
+                logAgent("done (\(full.count) chars)", level: .success, icon: "flag.checkered")
+            }
+        }
+    }
+
+    /// Atomically transition from "streaming" to "bot message present" so the
+    /// streamingBubble and the freshly-mounted messageRow don't visually
+    /// clobber each other. Order matters:
+    ///   1. Append the bot message first (WebView starts loading with the
+    ///      cached height, so it renders at the right size immediately).
+    ///   2. Only then hide the streamingBubble and reset streamingText —
+    ///      inside a single `withTransaction` block that disables animation
+    ///      to avoid stacking scroll animations that used to look like flicker.
+    @MainActor
+    private func finalizeReply(full: String) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+
+        withTransaction(transaction) {
             if !full.isEmpty {
                 let botMsg = ChatMessage(content: full, isUser: false, hasReasoning: isDeepSeekPro)
-                withAnimation { messages.append(botMsg) }
+                messages.append(botMsg)
                 if isAutoSpeakEnabled { speechSynth.speak(speakableText(full), messageId: botMsg.id) }
             }
-            if !streamingText.hasPrefix("Error") && !streamingText.hasPrefix("⚠️") { streamingText = "" }; if memoryUsed >= memoryMax { memoryUsed = 2 }
+            isStreaming = false
+            agentProcessingText = ""
+            if !streamingText.hasPrefix("Error") && !streamingText.hasPrefix("⚠️") {
+                streamingText = ""
+            }
+            if memoryUsed >= memoryMax { memoryUsed = 2 }
         }
     }
     private func stopStreaming() { streamingTask?.cancel(); streamingTask = nil; isStreaming = false; streamingText = ""; agentProcessingText = ""; Task { try? await APIClient.shared.clearLocks() } }
@@ -609,7 +854,7 @@ struct ChatRoomView: View {
 // MARK: - Toggle Buttons
 struct ToggleButton: View {
     let label: String; let icon: String; @Binding var isOn: Bool; let color: Color
-    var body: some View { Button(action: { withAnimation { isOn.toggle() } }) { HStack(spacing: 3) { Image(systemName: isOn ? "\(icon).fill" : icon).font(.system(size: 10)); Text(label) }.font(.hermes.badge).padding(.horizontal, HermesSpacing.sm).padding(.vertical, 3).background(isOn ? color.opacity(0.15) : Color.hermes.hover).foregroundColor(isOn ? color : .hermes.muted).cornerRadius(HermesRadius.sm).overlay(RoundedRectangle(cornerRadius: HermesRadius.sm).strokeBorder(isOn ? color.opacity(0.3) : .clear, lineWidth: 1)) }.buttonStyle(PlainButtonStyle()) }
+    var body: some View { Button(action: { withAnimation { isOn.toggle() } }) { HStack(spacing: 3) { Image(systemName: icon).font(.system(size: 10)); Text(label) }.font(.hermes.badge).padding(.horizontal, HermesSpacing.sm).padding(.vertical, 3).background(isOn ? color.opacity(0.15) : Color.hermes.hover).foregroundColor(isOn ? color : .hermes.muted).cornerRadius(HermesRadius.sm).overlay(RoundedRectangle(cornerRadius: HermesRadius.sm).strokeBorder(isOn ? color.opacity(0.3) : .clear, lineWidth: 1)) }.buttonStyle(PlainButtonStyle()) }
 }
 struct DeepSeekProToggle: View {
     @Binding var isOn: Bool; let visible: Bool
@@ -619,8 +864,7 @@ struct DeepSeekProToggle: View {
 // MARK: - Rich Markdown Renderer
 private struct RichMessageContent: View {
     let content: String; let isUser: Bool
-    @State private var webHeight: CGFloat = 40
-    
+
     var body: some View {
         if isUser {
             Text(content).font(.hermes.body).foregroundColor(.white).lineSpacing(4).textSelection(.enabled)
@@ -631,8 +875,10 @@ private struct RichMessageContent: View {
                     case .thinking(let summary, let body):
                         thinkingBlock(summary: summary, body: body)
                     case .markdown(let md):
-                        MarkdownWebView(html: MarkdownHTMLRenderer.render(md), contentHeight: $webHeight)
-                            .frame(height: max(webHeight, 40))
+                        // Each block owns its own height state so siblings can't
+                        // overwrite each other's measured height (that was the
+                        // second flicker source).
+                        MarkdownBlock(markdown: md)
                     }
                 }
             }
@@ -717,5 +963,28 @@ private struct RichMessageContent: View {
         // Collapse multiple newlines
         cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+/// One markdown block owning its own height state so sibling blocks can't
+/// thrash each other's layout. Seeds the initial height from a global cache
+/// so a freshly-mounted WebView (e.g. right after streaming completes) does
+/// not pop in at 40pt while it measures.
+private struct MarkdownBlock: View {
+    let markdown: String
+
+    @State private var height: CGFloat
+    private let renderedHTML: String
+
+    init(markdown: String) {
+        self.markdown = markdown
+        let html = MarkdownHTMLRenderer.render(markdown)
+        self.renderedHTML = html
+        self._height = State(initialValue: MarkdownWebView.cachedHeight(for: html) ?? 40)
+    }
+
+    var body: some View {
+        MarkdownWebView(html: renderedHTML, contentHeight: $height)
+            .frame(height: max(height, 40))
     }
 }

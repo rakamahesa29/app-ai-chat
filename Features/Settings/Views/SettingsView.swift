@@ -104,7 +104,7 @@ struct SettingsView: View {
                             HermesToggleRow(
                                 title: "DeepSeek API",
                                 subtitle: "DeepSeek V4 — Flash + Pro with reasoning",
-                                icon: "cloud.fill",
+                                icon: "cloud",
                                 iconColor: .purple,
                                 isOn: $isDeepSeekEnabled
                             )
@@ -186,7 +186,7 @@ struct SettingsView: View {
                             HermesToggleRow(
                                 title: "Dark Mode",
                                 subtitle: "Toggle between light and dark themes",
-                                icon: appState.isDarkMode ? "moon.fill" : "sun.max.fill",
+                                icon: appState.isDarkMode ? "moon" : "sun.max",
                                 iconColor: appState.isDarkMode ? .indigo : .orange,
                                 isOn: $appState.isDarkMode
                             )
@@ -216,7 +216,7 @@ struct SettingsView: View {
                     // Save Button
                     HermesButton(
                         title: "Save Settings",
-                        icon: "checkmark.circle.fill",
+                        icon: "checkmark.circle",
                         action: {
                             Task {
                                 await saveSettings()
@@ -399,7 +399,7 @@ struct ProfileView: View {
                                 .fill(Color.hermes.accent)
                                 .frame(width: 32, height: 32)
                                 .overlay(
-                                    Image(systemName: "camera.fill")
+                                    Image(systemName: "camera")
                                         .font(.system(size: 12))
                                         .foregroundColor(.white)
                                 )
@@ -439,7 +439,7 @@ struct ProfileView: View {
                             
                             HermesButton(
                                 title: "Save Profile",
-                                icon: "checkmark.circle.fill",
+                                icon: "checkmark.circle",
                                 action: {
                                     appState.currentUserName = name
                                     appState.currentUserEmail = email

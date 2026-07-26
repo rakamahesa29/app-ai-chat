@@ -66,7 +66,7 @@ struct BrainCreateView: View {
                         VStack(alignment: .leading, spacing: HermesSpacing.sm) {
                             ForEach(errors, id: \.self) { error in
                                 HStack(spacing: HermesSpacing.sm) {
-                                    Image(systemName: "exclamationmark.circle.fill")
+                                    Image(systemName: "exclamationmark.circle")
                                         .font(.system(size: 13))
                                     Text(error)
                                         .font(.hermes.caption)
@@ -183,7 +183,7 @@ struct BrainCreateView: View {
                                         action: { inputType = .text }
                                     )
                                     TypeButton(
-                                        icon: "doc.fill",
+                                        icon: "doc",
                                         label: "Upload PDF",
                                         isSelected: inputType == .pdf,
                                         action: { inputType = .pdf }
@@ -242,7 +242,7 @@ struct BrainCreateView: View {
                             // Submit
                             HermesButton(
                                 title: "Save to Brain",
-                                icon: "square.and.arrow.down.fill",
+                                icon: "square.and.arrow.down",
                                 isDisabled: title.isEmpty || (inputType == .text && content.isEmpty),
                                 action: saveDocument
                             )
@@ -323,7 +323,7 @@ struct TagCheckbox: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: HermesSpacing.sm) {
-                Image(systemName: isSelected ? "checkmark.square.fill" : "square")
+                Image(systemName: isSelected ? "checkmark.square" : "square")
                     .font(.system(size: 14))
                     .foregroundColor(isSelected ? .hermes.accent : .hermes.border)
                 Text(label)
