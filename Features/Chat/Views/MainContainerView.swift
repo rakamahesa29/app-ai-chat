@@ -48,6 +48,11 @@ struct MainContainerView: View {
                                     rooms.removeAll { $0.id == roomID }
                                     selectedRoomID = rooms.first?.id
                                     Task { await deleteRoomAPI(roomID) }
+                                },
+                                onModelChange: { newModel in
+                                    if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
+                                        rooms[idx].model = newModel
+                                    }
                                 }
                             )
                             .id(room.id)  // Force re-creation on room switch

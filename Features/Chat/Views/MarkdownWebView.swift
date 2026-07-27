@@ -121,12 +121,26 @@ struct MarkdownWebView: NSViewRepresentable {
     func updateNSView(_ webView: NoScrollWKWebView, context: Context) {
         if context.coordinator.lastHTML == html { return }
         context.coordinator.lastHTML = html
-        webView.loadHTMLString(Self.fullHTML(html), baseURL: nil)
+
+        // Debounce rapid streaming updates so WKWebView has time to finish
+        // each load. Without this, loadHTMLString gets called 20-100×/sec
+        // during SSE streaming; WKWebView cancels the pending load on each
+        // call and never renders anything — the user sees a blank bubble.
+        context.coordinator.pendingHTML = html
+        context.coordinator.loadWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak webView] in
+            guard let wv = webView else { return }
+            wv.loadHTMLString(Self.fullHTML(html), baseURL: nil)
+        }
+        context.coordinator.loadWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
     }
-    
+
     class Coordinator: NSObject, WKNavigationDelegate {
         @Binding var contentHeight: CGFloat
         var lastHTML: String?
+        var pendingHTML: String?
+        var loadWorkItem: DispatchWorkItem?
         weak var webView: WKWebView?
 
         init(contentHeight: Binding<CGFloat>) { self._contentHeight = contentHeight }
@@ -175,7 +189,15 @@ extension MarkdownWebView: UIViewRepresentable {
         guard let wv = context.coordinator.webView else { return }
         if context.coordinator.lastHTML == html { return }
         context.coordinator.lastHTML = html
-        wv.loadHTMLString(Self.fullHTML(html), baseURL: nil)
+
+        context.coordinator.pendingHTML = html
+        context.coordinator.loadWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak wv] in
+            guard let wv else { return }
+            wv.loadHTMLString(Self.fullHTML(html), baseURL: nil)
+        }
+        context.coordinator.loadWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
     }
 }
 #endif

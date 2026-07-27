@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(macOS)
+import AppKit
+#endif
 
 struct ComposerView: View {
     var roomId: String? = nil
@@ -19,6 +22,13 @@ struct ComposerView: View {
     @State private var showPasteCodeSheet = false
     @State private var showSkillsSheet = false
     @FocusState private var isFocused: Bool
+
+    #if os(macOS)
+    // Height reported by ChatTextView; clamped between one line and ~six lines.
+    @State private var textViewHeight: CGFloat = 22
+    private let composerMinHeight: CGFloat = 22
+    private let composerMaxHeight: CGFloat = 132
+    #endif
     
     // Voice-to-text
     @StateObject private var speechRecognizer = SpeechRecognizer()
@@ -114,17 +124,26 @@ struct ComposerView: View {
                                 .allowsHitTesting(false)
                         }
                         
+                        #if os(macOS)
+                        // AppKit-backed input: Return sends, Shift+Return inserts newline,
+                        // right-click shows the standard text services menu.
+                        ChatTextView(
+                            text: $messageText,
+                            contentHeight: $textViewHeight,
+                            font: NSFont.preferredFont(forTextStyle: .body),
+                            textColor: hermesNSTextColor,
+                            onSubmit: submitFromKeyboard
+                        )
+                        .frame(height: min(composerMaxHeight,
+                                           max(composerMinHeight, textViewHeight)))
+                        #else
                         TextField("", text: $messageText, axis: .vertical)
                             .font(.hermes.body)
                             .foregroundColor(.hermes.text)
                             .lineLimit(1...6)
                             .focused($isFocused)
-                            .onSubmit {
-                                if !messageText.isEmpty { handleSend() }
-                            }
-                            #if os(iOS)
                             .textInputAutocapitalization(.sentences)
-                            #endif
+                        #endif
                     }
                 }
                 .padding(.horizontal, HermesSpacing.md)
@@ -134,6 +153,7 @@ struct ComposerView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: HermesRadius.md)
                         .strokeBorder(Color.hermes.border, lineWidth: 1)
+                        .allowsHitTesting(false) // don't swallow right-clicks / drag-select on the TextField
                 )
                 
                 // Send / Stop Button
@@ -333,6 +353,32 @@ struct ComposerView: View {
         ].compactMap { $0 }
     }
     
+    #if os(macOS)
+    // Adaptive NSColor mirroring Color.hermes.text so the AppKit text view
+    // matches the rest of the design system in both light and dark modes.
+    // Cached as a static so we do not mint a new NSColor on every SwiftUI
+    // body evaluation (which would otherwise churn updateNSView).
+    private var hermesNSTextColor: NSColor { Self.cachedTextColor }
+
+    private static let cachedTextColor: NSColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(hex: "#F9FAFB")
+            : NSColor(hex: "#111827")
+    }
+
+    // Called by ChatTextView when the user presses plain Return.
+    // Guards mirror the Send button's disabled logic so the keyboard path
+    // cannot bypass rate limiting, streaming, or the agent-without-workspace state.
+    private func submitFromKeyboard() {
+        let canSend = !messageText.trimmingCharacters(in: .whitespaces).isEmpty
+            || !attachedFiles.isEmpty
+            || pastedCode != nil
+        let allowedForMode = !(chatMode == .agent && !hasWorkspace)
+        guard canSend, !isStreaming, !isRateLimited, allowedForMode else { return }
+        handleSend()
+    }
+    #endif
+
     // MARK: - Actions
     private func toggleListening() {
         if isListening {

@@ -130,15 +130,16 @@ enum MarkdownHTMLRenderer {
     // MARK: - Lists
     
     private static func convertUnorderedLists(_ html: String) -> String {
-        var lines = html.components(separatedBy: "\n")
+        // TODO: nested list support — current implementation flattens all
+        // items into a single top-level <ul>, ignoring leading indentation.
+        let lines = html.components(separatedBy: "\n")
         var result: [String] = []
         var listItems: [String] = []
         var inList = false
         
         for line in lines {
-            if let match = line.firstMatch(of: try! Regex("^(\\s*)[-*] (.+)$")) {
-                let indent = match.output[1].substring?.count ?? 0
-                let content = String(match.output[2].substring ?? "")
+            if let match = line.firstMatch(of: try! Regex("^\\s*[-*] (.+)$")) {
+                let content = String(match.output[1].substring ?? "")
                 listItems.append("<li>\(content)</li>")
                 inList = true
             } else {
@@ -157,14 +158,16 @@ enum MarkdownHTMLRenderer {
     }
     
     private static func convertOrderedLists(_ html: String) -> String {
-        var lines = html.components(separatedBy: "\n")
+        // TODO: nested list support — current implementation flattens all
+        // items into a single top-level <ol>, ignoring leading indentation.
+        let lines = html.components(separatedBy: "\n")
         var result: [String] = []
         var listItems: [String] = []
         var inList = false
         
         for line in lines {
-            if let match = line.firstMatch(of: try! Regex("^(\\s*)\\d+\\. (.+)$")) {
-                let content = String(match.output[2].substring ?? "")
+            if let match = line.firstMatch(of: try! Regex("^\\s*\\d+\\. (.+)$")) {
+                let content = String(match.output[1].substring ?? "")
                 listItems.append("<li>\(content)</li>")
                 inList = true
             } else {

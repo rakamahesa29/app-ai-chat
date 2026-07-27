@@ -5,13 +5,14 @@ struct ChatRoomView: View {
     var isMobile: Bool
     @Binding var isSidebarOpen: Bool
     var onDeleteRoom: (() -> Void)? = nil
+    var onModelChange: ((String) -> Void)? = nil
     
     @State private var messages: [ChatMessage] = []
     @State private var isStreaming = false
     @State private var streamingText = ""
     @State private var isLoadingMessages = false
-    @State private var isDeepSeekPro = false
-    @State private var isSkripsiMode = false
+    @AppStorage("deepseek_pro_enabled") private var isDeepSeekPro = false
+    @AppStorage("skripsi_mode_enabled") private var isSkripsiMode = false
     @State private var isWebSearchEnabled = false
     @State private var memoryUsed = 0
     @State private var memoryMax = 10
@@ -88,6 +89,7 @@ struct ChatRoomView: View {
         .task(id: room.id) { await fetchMessages() }
         .onAppear { selectedModel = room.model }
         .onChange(of: room.id) { selectedModel = room.model }
+        .onChange(of: selectedModel) { _, new in onModelChange?(new) }
         .onChange(of: isAutoSpeakEnabled) { if !isAutoSpeakEnabled { speechSynth.stop() } }
         .alert("Workspace Trusted", isPresented: $showWorkspaceTrustAlert) {
             Button("OK", role: .cancel) {}
@@ -329,12 +331,15 @@ struct ChatRoomView: View {
     
     private var streamingBubble: some View {
         HStack(alignment: .top) {
-            Spacer(minLength: 60)
             VStack(alignment: .leading, spacing: HermesSpacing.sm) {
                 if streamingText.isEmpty {
                     HStack(spacing: 4) { ProgressView().scaleEffect(0.6); Text("Thinking…").font(.hermes.caption).foregroundColor(.hermes.muted) }.padding(HermesSpacing.md)
                 } else {
-                    RichMessageContent(content: streamingText, isUser: false)
+                    StreamingContent(text: streamingText)
+                        .padding(HermesSpacing.md)
+                        .background(Color.hermes.card.opacity(0.5))
+                        .cornerRadius(HermesRadius.lg)
+                        .overlay(RoundedRectangle(cornerRadius: HermesRadius.lg).strokeBorder(Color.hermes.border, lineWidth: 1))
                 }
             }
             Spacer(minLength: 60)
@@ -354,6 +359,14 @@ struct ChatRoomView: View {
         guard let proxy = scrollProxy else { return }
         let id = isStreaming ? "streaming" : (isRateLimited ? "rate_limit" : messages.last?.id ?? "")
         if !id.isEmpty { withAnimation { proxy.scrollTo(id, anchor: .bottom) } }
+    }
+
+    /// Sync memory cycle display using total message count (user + bot)
+    /// with modulo arithmetic, matching the web frontend's logic.
+    private func updateMemoryCycle() {
+        let total = messages.count
+        let mod = total % memoryMax
+        memoryUsed = (mod == 0 && total > 0) ? memoryMax : mod
     }
     private func rate(_ msg: ChatMessage, _ r: MessageRating) {
         guard let i = messages.firstIndex(where: { $0.id == msg.id }) else { return }
@@ -377,9 +390,7 @@ struct ChatRoomView: View {
             messages = try await APIClient.shared.fetchMessages(roomId: room.id).map {
                 ChatMessage(id: String($0.id), content: $0.content, isUser: $0.senderType == "user")
             }
-            // Derive the memory counter from real history (was hardcoded to 4 before).
-            let userCount = messages.filter { $0.isUser }.count
-            memoryUsed = min(userCount, memoryMax)
+            updateMemoryCycle()
         }
         catch { print("Fetch msgs: \(error)") }
         isLoadingMessages = false
@@ -396,7 +407,7 @@ struct ChatRoomView: View {
         streamingTask?.cancel()
         let um = ChatMessage(content: text, isUser: true, hasWebContext: isWebSearchEnabled)
         withAnimation { messages.append(um) }
-        if memoryUsed < memoryMax { memoryUsed += 1 }
+        updateMemoryCycle()
         isStreaming = true; streamingText = ""
         // continueAgent handles its own completion (append + isStreaming=false).
         // We set this to true before delegating so sendMessage's outer
@@ -815,7 +826,7 @@ struct ChatRoomView: View {
             if !streamingText.hasPrefix("Error") && !streamingText.hasPrefix("⚠️") {
                 streamingText = ""
             }
-            if memoryUsed >= memoryMax { memoryUsed = 2 }
+            updateMemoryCycle()
         }
     }
     private func stopStreaming() { streamingTask?.cancel(); streamingTask = nil; isStreaming = false; streamingText = ""; agentProcessingText = ""; Task { try? await APIClient.shared.clearLocks() } }
@@ -924,10 +935,13 @@ private struct RichMessageContent: View {
             }
             
             guard let end = text.range(of: "</details>", range: start.upperBound..<text.endIndex) else {
-                // Orphaned opening tag — strip it and continue
-                text.removeSubrange(start.lowerBound..<text.endIndex)
-                break
-            }
+                    let thinkingSoFar = String(text[start.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !thinkingSoFar.isEmpty {
+                        blocks.append(Block(type: .thinking(summary: "Thinking...", body: thinkingSoFar)))
+                    }
+                    text = ""
+                    break
+                }
             
             let inner = String(text[start.upperBound..<end.lowerBound])
             let summary: String
@@ -955,11 +969,12 @@ private struct RichMessageContent: View {
         return blocks
     }
     
-    /// Strip residual HTML tags (orphaned </details>, unclosed tags, etc.)
+    /// Strip only residual DeepSeek thinking tags left over from parsing.
+    /// Must NOT strip legitimate HTML in code examples (e.g. <html lang="...">).
     private func sanitize(_ text: String) -> String {
         var cleaned = text
-        // Remove all HTML tags
-        cleaned = cleaned.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "</?details[^>]*>", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
         // Collapse multiple newlines
         cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -986,5 +1001,92 @@ private struct MarkdownBlock: View {
     var body: some View {
         MarkdownWebView(html: renderedHTML, contentHeight: $height)
             .frame(height: max(height, 40))
+    }
+}
+
+/// Lightweight streaming renderer using SwiftUI Text instead of WKWebView.
+/// Avoids the heavy WKWebView create/destroy cycle that causes "stuck" rendering
+/// during SSE streaming. Full WKWebView rendering is used for finalized messages.
+private struct StreamingContent: View {
+    let text: String
+
+    var body: some View {
+        let parts = Self.parse(text)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
+                switch part {
+                case .thinking(let summary, let body):
+                    DisclosureGroup {
+                        Text(body)
+                            .font(.hermes.mono)
+                            .foregroundColor(.hermes.muted)
+                            .lineSpacing(4)
+                            .padding(.vertical, 4)
+                    } label: {
+                        Label(summary, systemImage: "brain.head.profile")
+                            .font(.hermes.caption)
+                            .foregroundColor(.purple)
+                    }
+                    .padding(10)
+                    .background(Color.purple.opacity(0.06))
+                    .cornerRadius(HermesRadius.md)
+                case .text(let md):
+                    Text(.init(md))
+                        .font(.hermes.body)
+                        .foregroundColor(.hermes.text)
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    enum Part {
+        case thinking(summary: String, body: String)
+        case text(String)
+    }
+
+    static func parse(_ content: String) -> [Part] {
+        var text = content
+        var parts: [Part] = []
+
+        while let start = text.range(of: "<details class=\"ds-thinking\">") {
+            let prefix = String(text[text.startIndex..<start.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !prefix.isEmpty { parts.append(.text(sanitize(prefix))) }
+
+            guard let end = text.range(of: "</details>", range: start.upperBound..<text.endIndex) else {
+                var thinking = String(text[start.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if let ss = thinking.range(of: "<summary>"), let se = thinking.range(of: "</summary>") {
+                    thinking = String(thinking[se.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                thinking = thinking.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
+                if !thinking.isEmpty { parts.append(.thinking(summary: "Thinking…", body: thinking)) }
+                return parts
+            }
+
+            let inner = String(text[start.upperBound..<end.lowerBound])
+            let summary: String; let body: String
+            if let ss = inner.range(of: "<summary>"), let se = inner.range(of: "</summary>") {
+                summary = String(inner[ss.upperBound..<se.lowerBound])
+                    .replacingOccurrences(of: "💭", with: "").trimmingCharacters(in: .whitespaces)
+                body = String(inner[se.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                summary = "Thinking"; body = inner.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            parts.append(.thinking(summary: summary, body: body))
+            text = String(text[end.upperBound...])
+        }
+
+        let remaining = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remaining.isEmpty { parts.append(.text(sanitize(remaining))) }
+        return parts
+    }
+
+    private static func sanitize(_ text: String) -> String {
+        var cleaned = text
+        cleaned = cleaned.replacingOccurrences(of: "</?details[^>]*>", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
+        cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
