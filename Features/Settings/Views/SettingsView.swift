@@ -25,7 +25,7 @@ struct SettingsView: View {
     @State private var ollamaCloudURL = ""
     @State private var ollamaLocalModel = "gemma4:12b-mlx"
     @State private var ollamaCloudModel = "gemma4:31b-cloud"
-    @State private var embeddingModel = "nomic-embed-text"
+    @State private var embeddingModel = "bge-m3:567m"
     
     // DeepSeek API
     @State private var deepSeekAPIKey = ""
@@ -131,7 +131,7 @@ struct SettingsView: View {
                     // Embeddings
                     settingsSection("Embeddings & RAG") {
                         VStack(spacing: HermesSpacing.md) {
-                            HermesTextField("nomic-embed-text", text: $embeddingModel, label: "Embedding Model")
+                            HermesTextField("bge-m3:567m", text: $embeddingModel, label: "Embedding Model")
                             
                             HermesToggleRow(
                                 title: "RAG (Retrieval-Augmented Generation)",
@@ -258,8 +258,8 @@ struct SettingsView: View {
             deepSeekFlashModel = s.deepseekFlashModel ?? "deepseek-v4-flash"
             deepSeekProModel = s.deepseekProModel ?? "deepseek-v4-pro"
             deepSeekProReasoning = s.deepseekReasoning ?? "high"
-            embeddingModel = s.embeddingModel ?? "nomic-embed-text"
-            ragChunkSize = String(s.ragChunkSize ?? 1000)
+            embeddingModel = s.embeddingModel ?? "bge-m3:567m"
+            ragChunkSize = String(s.ragChunkSize ?? 1500)
             ragTopK = String(s.ragTopK ?? 6)
             tavilyAPIKey = s.tavilyApiKey ?? ""
         } catch {
