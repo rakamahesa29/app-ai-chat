@@ -32,6 +32,8 @@ struct ChatRoomView: View {
     // Cursor-CLI style running activity log for the current agent turn.
     @State private var agentLog: [AgentLogEvent] = []
     @State private var isAgentLogExpanded: Bool = true
+    @State private var agentThinkingText = ""
+    @State private var isAgentThinkingExpanded = false
     
     enum ChatMode: String, CaseIterable {
         case ask = "Ask", agent = "Agent"
@@ -63,6 +65,7 @@ struct ChatRoomView: View {
                         if chatMode == .agent && !agentLog.isEmpty {
                             agentActivityBlock.id("agent_log")
                         }
+                        if !agentThinkingText.isEmpty { thinkingBubble.id("thinking") }
                         if isStreaming { streamingBubble.id("streaming") }
                         if isRateLimited { rateLimitBanner.id("rate_limit") }
                         if isStreaming {
@@ -314,6 +317,16 @@ struct ChatRoomView: View {
                             if speechSynth.isSpeaking { speechSynth.stop() }
                             else { speechSynth.speak(speakableText(msg.content), messageId: msg.id) }
                         }
+                        if isSkripsiMode {
+                            Menu {
+                                Button(action: { exportToDocx(msg) }) { Label("Word (.docx)", systemImage: "doc.text") }
+                                Button(action: { exportToGoogleDocs(msg) }) { Label("Google Docs", systemImage: "doc.text.image") }
+                                Button(action: { exportToGoogleSheets(msg) }) { Label("Google Sheets", systemImage: "tablecells") }
+                            } label: {
+                                Image(systemName: "square.and.arrow.up").font(.system(size: 11)).foregroundColor(.hermes.muted)
+                            }.buttonStyle(PlainButtonStyle())
+                        }
+                        
                         if msg.id == messages.last?.id { IconBtn("arrow.triangle.2.circlepath", color: .hermes.accent) { continueGen(msg) } }
                     } else {
                         IconBtn("doc.on.doc") { copy(msg) }
@@ -329,6 +342,27 @@ struct ChatRoomView: View {
         Button(action: action) { Image(systemName: icon).font(.system(size: 11)).foregroundColor(active ? color : .hermes.muted) }.buttonStyle(PlainButtonStyle())
     }
     
+    private var thinkingBubble: some View {
+        HStack {
+            DisclosureGroup(isExpanded: $isAgentThinkingExpanded) {
+                Text(agentThinkingText)
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Label("DeepSeek is thinking...", systemImage: "brain")
+                    .foregroundColor(.hermes.accent)
+                    .font(.hermes.body)
+            }
+            .padding()
+            .background(Color.hermes.surface)
+            .cornerRadius(HermesSpacing.md)
+            
+            Spacer()
+        }
+    }
+
     private var streamingBubble: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: HermesSpacing.sm) {
@@ -382,6 +416,49 @@ struct ChatRoomView: View {
     }
     private func deleteMsg(_ msg: ChatMessage) { withAnimation { messages.removeAll { $0.id == msg.id } }; Task { try? await APIClient.shared.deleteMessage(id: msg.id) } }
     private func continueGen(_ msg: ChatMessage) { isStreaming = true; streamingText = "\n\n*Continuing…*\n\n"; DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isStreaming = false; streamingText = "" } }
+    
+    private func exportToDocx(_ msg: ChatMessage) {
+        Task {
+            do {
+                let url = try await APIClient.shared.exportDocx(messageId: msg.id)
+                #if os(macOS)
+                NSWorkspace.shared.open(url)
+                #else
+                print("Exported to: \(url)")
+                #endif
+            } catch { print("Docx export error: \(error)") }
+        }
+    }
+    
+    private func exportToGoogleDocs(_ msg: ChatMessage) {
+        Task {
+            do {
+                let url = try await APIClient.shared.exportGoogleDocs(messageId: msg.id)
+                if let u = URL(string: url) {
+                    #if os(macOS)
+                    NSWorkspace.shared.open(u)
+                    #else
+                    UIApplication.shared.open(u)
+                    #endif
+                }
+            } catch { print("Google Docs export error: \(error)") }
+        }
+    }
+    
+    private func exportToGoogleSheets(_ msg: ChatMessage) {
+        Task {
+            do {
+                let url = try await APIClient.shared.exportGoogleSheets(messageId: msg.id)
+                if let u = URL(string: url) {
+                    #if os(macOS)
+                    NSWorkspace.shared.open(u)
+                    #else
+                    UIApplication.shared.open(u)
+                    #endif
+                }
+            } catch { print("Google Sheets export error: \(error)") }
+        }
+    }
     
     // API
     private func fetchMessages() async {
@@ -442,22 +519,36 @@ struct ChatRoomView: View {
                     guard line.hasPrefix("data: "), let d = line.dropFirst(6).data(using: .utf8) else { if !line.isEmpty { print("📡 [SSE] non-data: \(line.prefix(80))") }; continue }
                     guard let o = try? JSONSerialization.jsonObject(with: d) as? [String:Any] else { continue }
                     if let e = o["error"] as? String { print("📡 [SSE] error: \(e)"); streamingText = "Error: \(e)"; break }
-                    if let type = o["type"] as? String, type == "meta" {
-                        if let s = o["status"] as? String {
-                            print("📡 [SSE] meta: \(s)")
-                            handleAgentMetaEvent(s, payload: o)
-                            if s == "searching_internal" { streamingText = "Searching..." }
-                            else if s == "using_model_knowledge" { streamingText = "" }
-                            else if s == "agent_tool_requests" {
-                                agentStateToken = o["state_token"] as? String
-                                agentRequests = o["requests"] as? [[String: Any]]
-                                agentProcessingText = "Executing agent tools..."
+                    if let type = o["type"] as? String {
+                        if type == "meta" {
+                            if let s = o["status"] as? String {
+                                print("📡 [SSE] meta: \(s)")
+                                handleAgentMetaEvent(s, payload: o)
+                                if s == "searching_internal" { streamingText = "Searching..." }
+                                else if s == "using_model_knowledge" { streamingText = "" }
+                                else if s == "agent_tool_requests" {
+                                    agentStateToken = o["state_token"] as? String
+                                    agentRequests = o["requests"] as? [[String: Any]]
+                                    agentProcessingText = "Executing agent tools..."
+                                }
+                                else if s == "agent_start" || s == "agent_analyzing" {
+                                    agentProcessingText = "Agent is thinking…"
+                                }
                             }
-                            else if s == "agent_start" || s == "agent_analyzing" {
-                                agentProcessingText = "Agent is thinking…"
-                            }
+                            continue
+                        } else if type == "thinking_start" {
+                            agentThinkingText = ""
+                            isAgentThinkingExpanded = true
+                            continue
+                        } else if type == "thinking" {
+                            if let c = o["content"] as? String { agentThinkingText += c }
+                            continue
+                        } else if type == "thinking_end" {
+                            continue
+                        } else if type == "chunk" {
+                            if let c = o["content"] as? String { full += c; streamingText = full }
+                            continue
                         }
-                        continue
                     }
                     if let c = o["content"] as? String { full += c; streamingText = full }
                     if o["done"] as? Bool == true {
@@ -469,7 +560,7 @@ struct ChatRoomView: View {
                             }
                             agentTurnCount += 1
                             print("📡 [Agent] Executing \(requests.count) tools locally (turn \(agentTurnCount))...")
-                            let results = executeAgentTools(requests, workspace: agentWorkspaceURL)
+                            let results = await executeAgentToolsAsync(requests, workspace: agentWorkspaceURL)
                             print("📡 [Agent] Tools done, continuing with token: \(token.prefix(8))...")
                             didHandOffToContinue = true
                             await continueAgent(token: token, results: results)
@@ -496,10 +587,7 @@ struct ChatRoomView: View {
     
     // MARK: - Agent Tool Execution
     
-    private func executeAgentTools(_ requests: [[String: Any]], workspace: URL?) -> [[String: Any]] {
-        var results: [[String: Any]] = []
-        
-        // Resolve security-scoped bookmark for persistent access
+    private func executeAgentToolsAsync(_ requests: [[String: Any]], workspace: URL?) async -> [[String: Any]] {
         var base = workspace
         var bookmarkAccessing = false
         if let data = UserDefaults.standard.data(forKey: "agent_workspace_bookmark") {
@@ -508,7 +596,6 @@ struct ChatRoomView: View {
                 bookmarkAccessing = resolved.startAccessingSecurityScopedResource()
                 base = resolved
                 if stale {
-                    // Refresh bookmark for next time
                     if let fresh = try? resolved.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil) {
                         UserDefaults.standard.set(fresh, forKey: "agent_workspace_bookmark")
                     }
@@ -519,126 +606,114 @@ struct ChatRoomView: View {
         
         guard let base = base else {
             print("❌ [Agent] No workspace URL!")
-            agentProcessingText = "Error: No workspace selected"
+            await MainActor.run { agentProcessingText = "Error: No workspace selected" }
             return [["tool": "error", "path": "", "status": "error", "message": "No workspace selected"]]
         }
         
         print("📁 [Agent] Workspace: \(base.path)")
-        print("📁 [Agent] Workspace exists: \(FileManager.default.fileExists(atPath: base.path))")
-        print("📁 [Agent] Workspace writable: \(FileManager.default.isWritableFile(atPath: base.path))")
         
-        for req in requests {
-            let tool = req["tool"] as? String ?? ""
-            var path = req["path"] as? String ?? ""
-            let content = req["content"] as? String
-            
-            // Normalize path: strip workspace prefix if LLM sent absolute path
-            let bp = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
-            if path.hasPrefix(bp + "/") {
-                path = String(path.dropFirst(bp.count + 1))
-                print("🔧 [Agent] Normalized absolute path → relative: \(path)")
-            } else if path.hasPrefix("/") && path != "/" {
-                // Absolute path not under workspace — treat as relative (strip leading /)
-                path = String(path.dropFirst())
-                print("🔧 [Agent] Stripped leading / from absolute path: \(path)")
-            }
-            let fullPath = base.appendingPathComponent(path)
-            
-            // Live status per tool
-            let label = toolLabel(tool, path: path)
-            agentProcessingText = label
-            print("🔧 [Agent] Tool: \(tool) path: \(path) → \(fullPath.path)")
-            
-            // Security: prevent path traversal
-            guard !path.contains(".."), fullPath.path.hasPrefix(bp) else {
-                print("❌ [Agent] Security blocked: \(path)")
-                results.append(["tool": tool, "path": path, "status": "error", "message": "Security: path traversal blocked"])
-                continue
+        let finalBase = base
+        return await withTaskGroup(of: [String: Any].self) { group in
+            for req in requests {
+                group.addTask {
+                    return await self.executeSingleTool(req, base: finalBase)
+                }
             }
             
-            switch tool {
-            case "write_file":
-                do {
-                    let dir = fullPath.deletingLastPathComponent()
-                    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-                    try (content ?? "").write(to: fullPath, atomically: true, encoding: .utf8)
-                    let size = (try? fullPath.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-                    let exists = FileManager.default.fileExists(atPath: fullPath.path)
-                    if exists {
-                        print("✅ [Agent] Written: \(fullPath.path) (\(size) bytes)")
-                        results.append(["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path) (\(size) bytes)"])
-                        Task { @MainActor in logAgent("wrote \(path) (\(size) B)", level: .success) }
-                    } else {
-                        // FileManager reported success but file doesn't exist — try shell
-                        print("⚠️ [Agent] FileManager wrote but file missing, trying shell...")
-                        try writeViaShell(fullPath: fullPath, content: content ?? "")
-                        print("✅ [Agent] Shell wrote: \(fullPath.path)")
-                        results.append(["tool": "write_file", "path": path, "status": "success", "message": "File created via shell: \(path)"])
-                        Task { @MainActor in logAgent("wrote \(path) (via shell)", level: .success) }
-                    }
-                } catch {
-                    // FileManager failed — try shell fallback
-                    print("⚠️ [Agent] FileManager error: \(error.localizedDescription), trying shell...")
-                    do {
-                        try writeViaShell(fullPath: fullPath, content: content ?? "")
-                        print("✅ [Agent] Shell fallback wrote: \(fullPath.path)")
-                        results.append(["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path)"])
-                        Task { @MainActor in logAgent("wrote \(path) (via shell fallback)", level: .success) }
-                    } catch {
-                        print("❌ [Agent] Shell also failed: \(error.localizedDescription)")
-                        results.append(["tool": "write_file", "path": path, "status": "error", "message": "Write failed: \(error.localizedDescription)"])
-                        Task { @MainActor in logAgent("write failed: \(path) — \(error.localizedDescription)", level: .error) }
-                    }
-                }
-            case "read_file":
-                do {
-                    let data = try String(contentsOf: fullPath, encoding: .utf8)
-                    print("📖 [Agent] Read: \(path) (\(data.count) chars)")
-                    results.append(["tool": "read_file", "path": path, "status": "success", "message": "Read \(data.count) chars", "content": data])
-                    Task { @MainActor in logAgent("read \(path) (\(data.count) chars)", level: .success) }
-                } catch {
-                    print("❌ [Agent] Read failed: \(path) — \(error.localizedDescription)")
-                    results.append(["tool": "read_file", "path": path, "status": "error", "message": "Cannot read: \(path)"])
-                    Task { @MainActor in logAgent("read failed: \(path)", level: .error) }
-                }
-            case "delete_file":
-                do {
-                    try FileManager.default.removeItem(at: fullPath)
-                    print("🗑 [Agent] Deleted: \(fullPath.path)")
-                    results.append(["tool": "delete_file", "path": path, "status": "success", "message": "Deleted: \(path)"])
-                    Task { @MainActor in logAgent("deleted \(path)", level: .success) }
-                } catch {
-                    print("❌ [Agent] Delete failed: \(path) — \(error.localizedDescription)")
-                    results.append(["tool": "delete_file", "path": path, "status": "error", "message": "Delete failed: \(error.localizedDescription)"])
-                    Task { @MainActor in logAgent("delete failed: \(path)", level: .error) }
-                }
-            case "list_files":
-                if let items = try? FileManager.default.contentsOfDirectory(at: fullPath, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: .skipsHiddenFiles) {
-                    var files: [[String: Any]] = []
-                    for item in items {
-                        let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-                        let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-                        files.append(["name": item.lastPathComponent, "type": isDir ? "dir" : "file", "size": size as Any])
-                    }
-                    let count = files.count
-                    print("📂 [Agent] Listed \(path): \(count) items")
-                    results.append(["tool": "list_files", "path": path, "status": "success", "message": "\(count) items", "files": files])
-                    Task { @MainActor in logAgent("listed \(path) (\(count) items)", level: .success) }
-                } else {
-                    print("❌ [Agent] List failed: \(path)")
-                    results.append(["tool": "list_files", "path": path, "status": "error", "message": "Cannot list: \(path)"])
-                    Task { @MainActor in logAgent("list failed: \(path)", level: .error) }
-                }
-            default:
-                print("❌ [Agent] Unknown tool: \(tool)")
-                results.append(["tool": tool, "path": path, "status": "error", "message": "Unknown tool: \(tool)"])
-                Task { @MainActor in logAgent("unknown tool: \(tool)", level: .error) }
+            var results: [[String: Any]] = []
+            for await res in group { results.append(res) }
+            
+            await MainActor.run {
+                self.agentProcessingText = "Sending results…"
+                self.logAgent("Sending results back to AI…", level: .info, icon: "paperplane")
             }
+            return results
         }
-        // Restore generic label after batch completes
-        agentProcessingText = "Sending results…"
-        Task { @MainActor in logAgent("Sending results back to AI…", level: .info, icon: "paperplane") }
-        return results
+    }
+    
+    private func executeSingleTool(_ req: [String: Any], base: URL) async -> [String: Any] {
+        let tool = req["tool"] as? String ?? ""
+        var path = req["path"] as? String ?? ""
+        let content = req["content"] as? String
+        
+        let bp = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
+        if path.hasPrefix(bp + "/") {
+            path = String(path.dropFirst(bp.count + 1))
+        } else if path.hasPrefix("/") && path != "/" {
+            path = String(path.dropFirst())
+        }
+        let fullPath = base.appendingPathComponent(path)
+        
+        let label = toolLabel(tool, path: path)
+        await MainActor.run { agentProcessingText = label }
+        
+        guard !path.contains(".."), fullPath.path.hasPrefix(bp) else {
+            return ["tool": tool, "path": path, "status": "error", "message": "Security: path traversal blocked"]
+        }
+        
+        var result: [String: Any] = [:]
+        switch tool {
+        case "write_file":
+            do {
+                let dir = fullPath.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try (content ?? "").write(to: fullPath, atomically: true, encoding: .utf8)
+                let size = (try? fullPath.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+                if FileManager.default.fileExists(atPath: fullPath.path) {
+                    result = ["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path) (\(size) bytes)"]
+                    await MainActor.run { logAgent("wrote \(path) (\(size) B)", level: .success) }
+                } else {
+                    try writeViaShell(fullPath: fullPath, content: content ?? "")
+                    result = ["tool": "write_file", "path": path, "status": "success", "message": "File created via shell: \(path)"]
+                    await MainActor.run { logAgent("wrote \(path) (via shell)", level: .success) }
+                }
+            } catch {
+                do {
+                    try writeViaShell(fullPath: fullPath, content: content ?? "")
+                    result = ["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path)"]
+                    await MainActor.run { logAgent("wrote \(path) (via shell fallback)", level: .success) }
+                } catch {
+                    result = ["tool": "write_file", "path": path, "status": "error", "message": "Write failed: \(error.localizedDescription)"]
+                    await MainActor.run { logAgent("write failed: \(path) — \(error.localizedDescription)", level: .error) }
+                }
+            }
+        case "read_file":
+            do {
+                let data = try String(contentsOf: fullPath, encoding: .utf8)
+                result = ["tool": "read_file", "path": path, "status": "success", "message": "Read \(data.count) chars", "content": data]
+                await MainActor.run { logAgent("read \(path) (\(data.count) chars)", level: .success) }
+            } catch {
+                result = ["tool": "read_file", "path": path, "status": "error", "message": "Cannot read: \(path)"]
+                await MainActor.run { logAgent("read failed: \(path)", level: .error) }
+            }
+        case "delete_file":
+            do {
+                try FileManager.default.removeItem(at: fullPath)
+                result = ["tool": "delete_file", "path": path, "status": "success", "message": "Deleted: \(path)"]
+                await MainActor.run { logAgent("deleted \(path)", level: .success) }
+            } catch {
+                result = ["tool": "delete_file", "path": path, "status": "error", "message": "Delete failed: \(error.localizedDescription)"]
+                await MainActor.run { logAgent("delete failed: \(path)", level: .error) }
+            }
+        case "list_files":
+            if let items = try? FileManager.default.contentsOfDirectory(at: fullPath, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: .skipsHiddenFiles) {
+                var files: [[String: Any]] = []
+                for item in items {
+                    let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                    let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+                    files.append(["name": item.lastPathComponent, "type": isDir ? "dir" : "file", "size": size as Any])
+                }
+                result = ["tool": "list_files", "path": path, "status": "success", "message": "\(files.count) items", "files": files]
+                await MainActor.run { logAgent("listed \(path) (\(files.count) items)", level: .success) }
+            } else {
+                result = ["tool": "list_files", "path": path, "status": "error", "message": "Cannot list: \(path)"]
+                await MainActor.run { logAgent("list failed: \(path)", level: .error) }
+            }
+        default:
+            result = ["tool": tool, "path": path, "status": "error", "message": "Unknown tool: \(tool)"]
+            await MainActor.run { logAgent("unknown tool: \(tool)", level: .error) }
+        }
+        return result
     }
     
     private func toolLabel(_ tool: String, path: String) -> String {
@@ -756,18 +831,32 @@ struct ChatRoomView: View {
                     streamingText = "Error: \(e)"; agentProcessingText = ""
                     break
                 }
-                if let type = o["type"] as? String, type == "meta" {
-                    if let s = o["status"] as? String {
-                        handleAgentMetaEvent(s, payload: o)
-                        if s == "agent_tool_requests" {
-                            agentStateToken = o["state_token"] as? String
-                            agentRequests = o["requests"] as? [[String: Any]]
-                            agentProcessingText = "Executing more tools..."
-                        } else if s == "agent_analyzing" || s == "agent_thinking" {
-                            agentProcessingText = "AI is thinking…"
+                if let type = o["type"] as? String {
+                    if type == "meta" {
+                        if let s = o["status"] as? String {
+                            handleAgentMetaEvent(s, payload: o)
+                            if s == "agent_tool_requests" {
+                                agentStateToken = o["state_token"] as? String
+                                agentRequests = o["requests"] as? [[String: Any]]
+                                agentProcessingText = "Executing more tools..."
+                            } else if s == "agent_analyzing" || s == "agent_thinking" {
+                                agentProcessingText = "AI is thinking…"
+                            }
                         }
+                        continue
+                    } else if type == "thinking_start" {
+                        agentThinkingText = ""
+                        isAgentThinkingExpanded = true
+                        continue
+                    } else if type == "thinking" {
+                        if let c = o["content"] as? String { agentThinkingText += c }
+                        continue
+                    } else if type == "thinking_end" {
+                        continue
+                    } else if type == "chunk" {
+                        if let c = o["content"] as? String { full += c; streamingText = full }
+                        continue
                     }
-                    continue
                 }
                 if let c = o["content"] as? String { full += c; streamingText = full }
                 if o["done"] as? Bool == true {
@@ -779,7 +868,7 @@ struct ChatRoomView: View {
                         }
                         agentTurnCount += 1
                         print("📡 [Agent] Executing \(r2.count) more tools (turn \(agentTurnCount))...")
-                        let results2 = executeAgentTools(r2, workspace: agentWorkspaceURL)
+                        let results2 = await executeAgentToolsAsync(r2, workspace: agentWorkspaceURL)
                         await continueAgent(token: t2, results: results2)
                     }
                     break

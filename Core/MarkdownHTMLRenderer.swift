@@ -6,6 +6,9 @@ enum MarkdownHTMLRenderer {
     
     static func render(_ markdown: String) -> String {
         var html = markdown
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
         
         // 1. Fenced code blocks ```lang\n...\n``` → <pre><code>
         html = html.replacingOccurrences(of: "```(\\w*)\\n([\\s\\S]*?)```",

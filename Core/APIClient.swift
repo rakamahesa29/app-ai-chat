@@ -239,6 +239,54 @@ extension APIClient {
         let _: APIResponse<Empty> = try await request("/chat/messages/\(id)", method: .delete)
     }
     
+    // MARK: - Export Endpoints
+    
+    func exportGoogleDocs(messageId: String) async throws -> String {
+        let wrapper: APIResponse<[String: String]> = try await request(
+            "/chat/messages/\(messageId)/export-google-docs", method: .post
+        )
+        guard let data = wrapper.data, let url = data["url"] else {
+            throw APIError.server("Failed to get Google Docs URL")
+        }
+        return url
+    }
+    
+    func exportGoogleSheets(messageId: String) async throws -> String {
+        let wrapper: APIResponse<[String: String]> = try await request(
+            "/chat/messages/\(messageId)/export-google-sheets", method: .post
+        )
+        guard let data = wrapper.data, let url = data["url"] else {
+            throw APIError.server("Failed to get Google Sheets URL")
+        }
+        return url
+    }
+    
+    func exportDocx(messageId: String) async throws -> URL {
+        let url = URL(string: "\(APIConfig.baseURL)/chat/messages/\(messageId)/export-docx")!
+        var req = URLRequest(url: url)
+        if let token = APIConfig.token { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        
+        let (localURL, response) = try await URLSession.shared.download(for: req)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+            throw APIError.httpError((response as? HTTPURLResponse)?.statusCode ?? 0)
+        }
+        
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        var fileName = "Export_\(messageId).docx"
+        if let cd = http.value(forHTTPHeaderField: "Content-Disposition") {
+            let parts = cd.components(separatedBy: "filename=")
+            if parts.count > 1 {
+                fileName = parts[1].replacingOccurrences(of: "\"", with: "")
+            }
+        }
+        
+        let dest = docs.appendingPathComponent(fileName)
+        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+        try fm.moveItem(at: localURL, to: dest)
+        return dest
+    }
+    
     /// Returns a SSE event stream URL. Use with URLSession streaming or EventSource.
     func sendMessageStreamURL(roomId: String) -> URL {
         URL(string: "\(APIConfig.baseURL)/chat/rooms/\(roomId)/send")!
