@@ -115,14 +115,12 @@ struct AuthenticatedContainerView: View {
         case dashboard = "Dashboard"
         case chat = "Chat"
         case brain = "Brain"
-        case files = "Files"
 
         var icon: String {
             switch self {
             case .dashboard: return "square.grid.2x2"
             case .chat: return "message"
             case .brain: return "brain"
-            case .files: return "folder"
             }
         }
     }
@@ -283,12 +281,6 @@ struct AuthenticatedContainerView: View {
             }
             .tabItem { Label("Brain", systemImage: "brain") }
             .tag(AppTab.brain)
-            
-            NavigationStack {
-                FileBrowserView()
-            }
-            .tabItem { Label("Files", systemImage: "folder") }
-            .tag(AppTab.files)
         }
         .tint(Color.hermes.accent)
     }
@@ -303,10 +295,6 @@ struct AuthenticatedContainerView: View {
         case .brain:
             NavigationStack {
                 BrainManagerView()
-            }
-        case .files:
-            NavigationStack {
-                FileBrowserView()
             }
         }
     }
