@@ -26,7 +26,7 @@ struct ChatCreateView: View {
     ]
     
     let models: [String: String] = [
-        "ollama": "Ollama (Gemma4 12B)",
+        "ollama": "Ollama (Ornith)",
         "ollama_cloud": "Ollama (Gemma4 31B Cloud)",
         "deepseek": "DeepSeek API"
     ]

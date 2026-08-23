@@ -45,7 +45,7 @@ struct DashboardView: View {
                         }
                         
                         VStack(spacing: HermesSpacing.md) {
-                            HermesToggleRow(title: "Ollama (Gemma4 12B)", subtitle: "Local", icon: "cpu", iconColor: .blue, isOn: $isOllamaEnabled)
+                            HermesToggleRow(title: "Ollama (Ornith)", subtitle: "Local", icon: "cpu", iconColor: .blue, isOn: $isOllamaEnabled)
                                 .onChange(of: isOllamaEnabled) { toggleProvider("ollama", enabled: isOllamaEnabled) }
                             HermesToggleRow(title: "Ollama (Gemma4 31B Cloud)", subtitle: "Cloud", icon: "server.rack", iconColor: .cyan, isOn: $isOllamaCloudEnabled)
                                 .onChange(of: isOllamaCloudEnabled) { toggleProvider("ollama_cloud", enabled: isOllamaCloudEnabled) }
