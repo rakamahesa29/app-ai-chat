@@ -23,7 +23,7 @@ struct SettingsView: View {
     // Ollama endpoints
     @State private var ollamaLocalURL = "http://127.0.0.1:11434"
     @State private var ollamaCloudURL = ""
-    @State private var ollamaLocalModel = "gemma4:12b-mlx"
+    @State private var ollamaLocalModel = "ornith"
     @State private var ollamaCloudModel = "gemma4:31b-cloud"
     @State private var embeddingModel = "bge-m3:567m"
     
@@ -77,7 +77,7 @@ struct SettingsView: View {
                         VStack(spacing: HermesSpacing.md) {
                             HermesToggleRow(
                                 title: "Ollama (Local)",
-                                subtitle: "Gemma4 12B — Private & offline",
+                                subtitle: "Ornith — Private & offline",
                                 icon: "cpu",
                                 iconColor: .blue,
                                 isOn: $isOllamaEnabled
@@ -85,7 +85,7 @@ struct SettingsView: View {
                             
                             if isOllamaEnabled {
                                 HermesTextField("http://127.0.0.1:11434", text: $ollamaLocalURL, label: "Ollama URL")
-                                HermesTextField("gemma4:12b-mlx", text: $ollamaLocalModel, label: "Local Model")
+                                HermesTextField("ornith", text: $ollamaLocalModel, label: "Local Model")
                             }
                             
                             HermesToggleRow(
@@ -251,7 +251,7 @@ struct SettingsView: View {
             isKnowledgeGraphEnabled = s.knowledgeGraphEnabled ?? true
             isWebSearchEnabled = s.webSearchEnabled ?? true
             ollamaLocalURL = s.ollamaLocalUrl ?? "http://127.0.0.1:11434"
-            ollamaLocalModel = s.ollamaLocalModel ?? "gemma4:12b-mlx"
+            ollamaLocalModel = s.ollamaLocalModel ?? "ornith"
             ollamaCloudURL = s.ollamaCloudUrl ?? ""
             ollamaCloudModel = s.ollamaCloudModel ?? "gemma4:31b-cloud"
             deepSeekAPIKey = s.deepseekApiKey ?? ""

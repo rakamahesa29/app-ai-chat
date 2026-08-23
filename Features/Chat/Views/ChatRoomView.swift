@@ -1,5 +1,5 @@
 import SwiftUI
-
+import MarkdownUI
 struct ChatRoomView: View {
     let room: ChatRoom
     var isMobile: Bool
@@ -121,7 +121,7 @@ struct ChatRoomView: View {
             if isEducationRoom { ToggleButton(label: "Skripsi", icon: "graduationcap", isOn: $isSkripsiMode, color: .orange) }
             DeepSeekProToggle(isOn: $isDeepSeekPro, visible: selectedModel == "deepseek")
             Picker("Model", selection: $selectedModel) {
-                Text("Gemma4 12B").tag("ollama"); Text("Gemma4 31B").tag("ollama_cloud"); Text("DeepSeek").tag("deepseek")
+                Text("Ornith").tag("ollama"); Text("Gemma4 31B").tag("ollama_cloud"); Text("DeepSeek").tag("deepseek")
             }.pickerStyle(.menu).font(.hermes.caption).foregroundColor(.hermes.muted)
         }.padding(.horizontal, HermesSpacing.lg).padding(.vertical, HermesSpacing.md).background(Color.hermes.surface)
     }
@@ -367,9 +367,9 @@ struct ChatRoomView: View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: HermesSpacing.sm) {
                 if streamingText.isEmpty {
-                    HStack(spacing: 4) { ProgressView().scaleEffect(0.6); Text("Thinking…").font(.hermes.caption).foregroundColor(.hermes.muted) }.padding(HermesSpacing.md)
+                    ProgressView().scaleEffect(0.8)
                 } else {
-                    StreamingContent(text: streamingText)
+                    RichMessageContent(content: streamingText, isUser: false)
                         .padding(HermesSpacing.md)
                         .background(Color.hermes.card.opacity(0.5))
                         .cornerRadius(HermesRadius.lg)
@@ -382,7 +382,7 @@ struct ChatRoomView: View {
     
     // Computed
     private var modelLabel: String {
-        switch selectedModel { case "ollama": "Gemma4 12B"; case "ollama_cloud": "Gemma4 31B"; case "deepseek": isDeepSeekPro ? "DeepSeek Pro" : "DeepSeek Flash"; default: "Gemma4 12B" }
+        switch selectedModel { case "ollama": "Ornith"; case "ollama_cloud": "Gemma4 31B"; case "deepseek": isDeepSeekPro ? "DeepSeek Pro" : "DeepSeek Flash"; default: "Ornith" }
     }
     private var memoryIcon: String { memoryUsed >= memoryMax ? "rectangle.compress.vertical" : memoryUsed >= 5 ? "square.stack.3d.up" : "square.stack.3d.down.forward" }
     private var memoryColor: Color { memoryUsed >= memoryMax ? .hermes.danger : memoryUsed >= 5 ? .hermes.warning : .hermes.muted }
@@ -554,7 +554,7 @@ struct ChatRoomView: View {
                     if o["done"] as? Bool == true {
                         // Agent awaiting tool execution
                         if o["awaiting_tools"] as? Bool == true, let token = agentStateToken, let requests = agentRequests {
-                            guard agentTurnCount < 8 else {
+                            guard agentTurnCount < 30 else {
                                 streamingText = "⚠️ Agent reached max turns. Try a simpler request."
                                 agentProcessingText = ""; break
                             }
@@ -975,10 +975,7 @@ private struct RichMessageContent: View {
                     case .thinking(let summary, let body):
                         thinkingBlock(summary: summary, body: body)
                     case .markdown(let md):
-                        // Each block owns its own height state so siblings can't
-                        // overwrite each other's measured height (that was the
-                        // second flicker source).
-                        MarkdownBlock(markdown: md)
+                        Markdown(md)
                     }
                 }
             }
@@ -1073,109 +1070,3 @@ private struct RichMessageContent: View {
 /// One markdown block owning its own height state so sibling blocks can't
 /// thrash each other's layout. Seeds the initial height from a global cache
 /// so a freshly-mounted WebView (e.g. right after streaming completes) does
-/// not pop in at 40pt while it measures.
-private struct MarkdownBlock: View {
-    let markdown: String
-
-    @State private var height: CGFloat
-    private let renderedHTML: String
-
-    init(markdown: String) {
-        self.markdown = markdown
-        let html = MarkdownHTMLRenderer.render(markdown)
-        self.renderedHTML = html
-        self._height = State(initialValue: MarkdownWebView.cachedHeight(for: html) ?? 40)
-    }
-
-    var body: some View {
-        MarkdownWebView(html: renderedHTML, contentHeight: $height)
-            .frame(height: max(height, 40))
-    }
-}
-
-/// Lightweight streaming renderer using SwiftUI Text instead of WKWebView.
-/// Avoids the heavy WKWebView create/destroy cycle that causes "stuck" rendering
-/// during SSE streaming. Full WKWebView rendering is used for finalized messages.
-private struct StreamingContent: View {
-    let text: String
-
-    var body: some View {
-        let parts = Self.parse(text)
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                switch part {
-                case .thinking(let summary, let body):
-                    DisclosureGroup {
-                        Text(body)
-                            .font(.hermes.mono)
-                            .foregroundColor(.hermes.muted)
-                            .lineSpacing(4)
-                            .padding(.vertical, 4)
-                    } label: {
-                        Label(summary, systemImage: "brain.head.profile")
-                            .font(.hermes.caption)
-                            .foregroundColor(.purple)
-                    }
-                    .padding(10)
-                    .background(Color.purple.opacity(0.06))
-                    .cornerRadius(HermesRadius.md)
-                case .text(let md):
-                    Text(.init(md))
-                        .font(.hermes.body)
-                        .foregroundColor(.hermes.text)
-                        .lineSpacing(4)
-                        .textSelection(.enabled)
-                }
-            }
-        }
-    }
-
-    enum Part {
-        case thinking(summary: String, body: String)
-        case text(String)
-    }
-
-    static func parse(_ content: String) -> [Part] {
-        var text = content
-        var parts: [Part] = []
-
-        while let start = text.range(of: "<details class=\"ds-thinking\">") {
-            let prefix = String(text[text.startIndex..<start.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !prefix.isEmpty { parts.append(.text(sanitize(prefix))) }
-
-            guard let end = text.range(of: "</details>", range: start.upperBound..<text.endIndex) else {
-                var thinking = String(text[start.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if let ss = thinking.range(of: "<summary>"), let se = thinking.range(of: "</summary>") {
-                    thinking = String(thinking[se.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-                thinking = thinking.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
-                if !thinking.isEmpty { parts.append(.thinking(summary: "Thinking…", body: thinking)) }
-                return parts
-            }
-
-            let inner = String(text[start.upperBound..<end.lowerBound])
-            let summary: String; let body: String
-            if let ss = inner.range(of: "<summary>"), let se = inner.range(of: "</summary>") {
-                summary = String(inner[ss.upperBound..<se.lowerBound])
-                    .replacingOccurrences(of: "💭", with: "").trimmingCharacters(in: .whitespaces)
-                body = String(inner[se.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-            } else {
-                summary = "Thinking"; body = inner.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            parts.append(.thinking(summary: summary, body: body))
-            text = String(text[end.upperBound...])
-        }
-
-        let remaining = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !remaining.isEmpty { parts.append(.text(sanitize(remaining))) }
-        return parts
-    }
-
-    private static func sanitize(_ text: String) -> String {
-        var cleaned = text
-        cleaned = cleaned.replacingOccurrences(of: "</?details[^>]*>", with: "", options: .regularExpression)
-        cleaned = cleaned.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
-        cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-}

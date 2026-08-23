@@ -18,13 +18,13 @@ A native macOS/iOS SwiftUI client for the Omoikane AI Chat backend (Laravel). Pr
 - **Three LLM backends** switchable per-message: Ollama local, Ollama Cloud, and DeepSeek API.
 - **DeepSeek Pro Mode:** Toggle to enable chain-of-thought reasoning with collapsible thinking blocks.
 - **Real-time SSE streaming** with dedicated `URLSessionConfiguration` optimized for long-running AI responses (5-min request timeout, 10-min resource timeout, 4 concurrent connections per host).
-- **Agent Mode:** Client-side tool execution loop (read/write/delete/list files) with collapsible activity log.
+- **Agent Mode (True Agentic Loop):** Client-side tool execution loop (read/write/delete/list files) capable of executing up to 30 continuous iterations automatically for massive file generation, complete with a real-time collapsible activity log.
 - **Room Skills:** Per-room custom instructions with CRUD management via API.
 
 ### Adaptive Chat Interface
 - **NavigationSplitView** on macOS/iPad, **TabView** on iPhone.
 - Tabs: Dashboard, Chat, Brain (Knowledge Base), Files.
-- **Rich message rendering** via `MarkdownWebView` with height caching to prevent flicker.
+- **Rich message rendering** natively at 60fps via `swift-markdown-ui` (no heavy WebViews), delivering a buttery smooth chat scrolling experience even during intensive AI streaming.
 - **Voice input** (microphone) and **voice output** (speaker) via on-device Speech framework.
 - **Code paste** and **file upload** via attachment menu.
 - **Message actions:** Rate (thumbs up/down), delete.
