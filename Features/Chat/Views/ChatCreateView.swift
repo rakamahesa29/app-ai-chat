@@ -13,7 +13,7 @@ struct ChatCreateView: View {
     var onDismiss: (() -> Void)? = nil
     var onCreateRoom: (ChatRoom) -> Void
     
-    let categories = ["General", "Software Dev", "Copywriting", "Education", "Business", "Daily Life"]
+    let categories = ["General", "Software Dev", "Copywriting", "Education", "Business", "Design & UI/UX", "Daily Life"]
     
     let personas: [String: String] = [
         "general": "General Assistant (Balanced)",
@@ -22,7 +22,8 @@ struct ChatCreateView: View {
         "sage": "The Sage (Empathetic & Meaningful)",
         "executive": "The Executive (Formal & Business)",
         "education": "The Educator (Academic & Structured)",
-        "swift-developer": "Swift Architect (SwiftUI & Laravel)"
+        "swift-developer": "Swift Architect (SwiftUI & Laravel)",
+        "lovable-engineer": "Lovable UI/UX Engineer (Frontend & Design)"
     ]
     
     let models: [String: String] = [
