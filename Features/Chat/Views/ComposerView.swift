@@ -6,7 +6,7 @@ import AppKit
 
 struct ComposerView: View {
     var roomId: String? = nil
-    var onSend: ((String) -> Void)?
+    var onSend: ((String, [String]) -> Void)?
     var isStreaming: Bool = false
     var isRateLimited: Bool = false
     var rateLimitMessage: String? = nil
@@ -344,6 +344,7 @@ struct ComposerView: View {
     
     private var allowedFileTypes: [UTType] {
         [
+            .image,
             .pdf, .plainText, .utf8PlainText,
             .sourceCode, .json, .xml, .commaSeparatedText,
             .html, .css, .javaScript,
@@ -400,20 +401,23 @@ struct ComposerView: View {
         let text = messageText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty || !attachedFiles.isEmpty || pastedCode != nil else { return }
         
-        var fullMessage = text.isEmpty ? "Please analyze the attached content." : text
+        var fullMessage = text.isEmpty && !attachedFiles.isEmpty ? "Please analyze the attached content." : text
 
         // Append pasted code as a fenced block so the backend/model treats it as code context.
         if let code = pastedCode, !code.isEmpty {
             fullMessage += "\n\n```\n\(code)\n```"
         }
 
-        // Append file references
-        if !attachedFiles.isEmpty {
-            let fileList = attachedFiles.map { "📎 \($0.name)" }.joined(separator: "\n")
+        // Append file references (exclude images from the text list)
+        let nonImageFiles = attachedFiles.filter { $0.type != .image }
+        if !nonImageFiles.isEmpty {
+            let fileList = nonImageFiles.map { "📎 \($0.name)" }.joined(separator: "\n")
             fullMessage += "\n\nAttached:\n\(fileList)"
         }
 
-        onSend?(fullMessage)
+        let imagesBase64 = attachedFiles.compactMap { $0.base64Data }
+
+        onSend?(fullMessage, imagesBase64)
         messageText = ""
         attachedFiles.removeAll()
         pastedCode = nil
@@ -431,10 +435,30 @@ struct ComposerView: View {
                 let ext = url.pathExtension.lowercased()
                 let type = AttachedFileType.from(extension: ext)
                 
+                var base64: String? = nil
+                if type == .image {
+                    if let data = try? Data(contentsOf: url) {
+                        #if os(macOS)
+                        if let image = NSImage(data: data), let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
+                            if let jpegData = rep.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) {
+                                base64 = "data:image/jpeg;base64," + jpegData.base64EncodedString()
+                            }
+                        }
+                        #else
+                        if let image = UIImage(data: data) {
+                            if let jpegData = image.jpegData(compressionQuality: 0.8) {
+                                base64 = "data:image/jpeg;base64," + jpegData.base64EncodedString()
+                            }
+                        }
+                        #endif
+                    }
+                }
+                
                 let file = AttachedFile(
                     name: name,
                     url: url,
-                    type: type
+                    type: type,
+                    base64Data: base64
                 )
                 attachedFiles.append(file)
             }
@@ -450,10 +474,11 @@ struct AttachedFile: Identifiable {
     let name: String
     let url: URL
     let type: AttachedFileType
+    var base64Data: String? = nil
 }
 
 enum AttachedFileType: String {
-    case pdf, text, code, document, data, unknown
+    case pdf, text, code, document, data, image, unknown
     
     var icon: String {
         switch self {
@@ -462,6 +487,7 @@ enum AttachedFileType: String {
         case .code: return "chevron.left.forwardslash.chevron.right"
         case .document: return "doc.richtext"
         case .data: return "tablecells"
+        case .image: return "photo"
         case .unknown: return "paperclip"
         }
     }
@@ -473,6 +499,7 @@ enum AttachedFileType: String {
         case .code: return .purple
         case .document: return .orange
         case .data: return .green
+        case .image: return .pink
         case .unknown: return .hermes.muted
         }
     }
@@ -484,6 +511,7 @@ enum AttachedFileType: String {
         case "swift", "js", "ts", "py", "php", "rb", "go", "java", "c", "cpp", "h", "html", "css", "json", "xml", "yaml", "yml", "toml": return .code
         case "docx", "doc", "rtf": return .document
         case "csv", "xlsx", "xls": return .data
+        case "png", "jpg", "jpeg", "gif", "webp", "heic": return .image
         default: return .unknown
         }
     }

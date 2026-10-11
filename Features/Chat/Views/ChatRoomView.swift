@@ -85,7 +85,9 @@ struct ChatRoomView: View {
                 }
                 .onChange(of: agentLog.count) { scrollToBottom() }
             }
-            ComposerView(roomId: room.id, onSend: sendMessage, isStreaming: isStreaming, isRateLimited: isRateLimited, rateLimitMessage: rateLimitMessage, chatMode: chatMode, hasWorkspace: agentWorkspaceURL != nil, isAutoSpeakEnabled: $isAutoSpeakEnabled)
+            ComposerView(roomId: room.id, onSend: { text, images in
+                sendMessage(text, images: images)
+            }, isStreaming: isStreaming, isRateLimited: isRateLimited, rateLimitMessage: rateLimitMessage, chatMode: chatMode, hasWorkspace: agentWorkspaceURL != nil, isAutoSpeakEnabled: $isAutoSpeakEnabled)
             statusBar
         }
         .background(Color.hermes.bg)
@@ -474,7 +476,7 @@ struct ChatRoomView: View {
     }
     
     // SSE Send
-    private func sendMessage(_ text: String) {
+    private func sendMessage(_ text: String, images: [String] = []) {
         guard !isRateLimited else { return }
         agentTurnCount = 0
         if chatMode == .agent, agentWorkspaceURL == nil {
@@ -502,7 +504,7 @@ struct ChatRoomView: View {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let t = APIConfig.token { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
-        req.httpBody = APIClient.shared.sendMessageBody(message: text, model: selectedModel, useWebSearch: isWebSearchEnabled, deepseekPro: isDeepSeekPro, skripsiMode: isSkripsiMode, workspacePath: agentWorkspaceURL?.path, chatMode: chatMode == .agent ? "agent" : "ask")
+        req.httpBody = APIClient.shared.sendMessageBody(message: text, model: selectedModel, useWebSearch: isWebSearchEnabled, deepseekPro: isDeepSeekPro, skripsiMode: isSkripsiMode, workspacePath: agentWorkspaceURL?.path, chatMode: chatMode == .agent ? "agent" : "ask", images: images)
         var full = ""
         streamingTask = Task {
             defer { streamingTask = nil }

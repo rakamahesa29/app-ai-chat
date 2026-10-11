@@ -296,15 +296,16 @@ extension APIClient {
         message: String, model: String = "ollama",
         useWebSearch: Bool = false, deepseekPro: Bool = false,
         skripsiMode: Bool = false, workspacePath: String? = nil,
-        chatMode: String = "ask"
+        chatMode: String = "ask", images: [String] = []
     ) -> Data {
-        var dict: [String: String] = [
+        var dict: [String: Any] = [
             "message": message, "model": model, "chat_mode": chatMode,
-            "use_web_search": useWebSearch ? "1" : "0",
-            "deepseek_pro": deepseekPro ? "1" : "0",
-            "skripsi_mode": skripsiMode ? "1" : "0"
+            "use_web_search": useWebSearch,
+            "deepseek_pro": deepseekPro,
+            "skripsi_mode": skripsiMode
         ]
         if let path = workspacePath { dict["workspace_path"] = path }
+        if !images.isEmpty { dict["images"] = images }
         return try! JSONSerialization.data(withJSONObject: dict)
     }
     

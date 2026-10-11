@@ -17,7 +17,7 @@ struct BrainCreateView: View {
     
     var onSave: (BrainDocument) -> Void
     
-    let availableTags = ["general", "architect", "bestie", "sage", "executive", "education"]
+    let availableTags = ["general", "architect", "bestie", "sage", "executive", "education", "swift-developer", "lovable-engineer"]
     
     let tagLabels: [String: String] = [
         "general": "General (All Personas)",
@@ -25,7 +25,9 @@ struct BrainCreateView: View {
         "bestie": "The Bestie (Casual)",
         "sage": "The Sage (Empathetic)",
         "executive": "The Executive (Business)",
-        "education": "The Educator (Academic)"
+        "education": "The Educator (Academic)",
+        "swift-developer": "Swift Architect (SwiftUI)",
+        "lovable-engineer": "Lovable UI/UX Engineer"
     ]
     
     var body: some View {

@@ -11,7 +11,7 @@ struct BrainEditView: View {
     @State private var inputType: BrainDocumentType
     @State private var content: String
     
-    let availableTags = ["general", "architect", "bestie", "sage", "executive", "education"]
+    let availableTags = ["general", "architect", "bestie", "sage", "executive", "education", "swift-developer", "lovable-engineer"]
     
     init(document: BrainDocument, onSave: @escaping (BrainDocument) -> Void) {
         self.document = document
