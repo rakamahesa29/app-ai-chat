@@ -1,0 +1,9 @@
+# Xcode & Swift
+.build/
+build/
+dist/
+DerivedData/
+*.xcuserstate
+project.xcworkspace
+xcuserdata/
+.DS_Store

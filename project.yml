@@ -1,0 +1,47 @@
+name: app-ai-chat
+options:
+  bundleIdPrefix: com.rakamahesa
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+
+packages:
+  MarkdownUI:
+    url: https://github.com/gonzalezreal/swift-markdown-ui
+    from: 2.4.0
+
+targets:
+  app-ai-chat:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: App
+      - path: Core
+      - path: Features
+      - path: Resources/Assets.xcassets
+      - path: Resources/Fonts
+    dependencies:
+      - package: MarkdownUI
+        product: MarkdownUI
+    info:
+      path: App/Info.plist
+    entitlements:
+      path: Omoikane.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rakamahesa.app-ai-chat
+        PRODUCT_NAME: "app ai chat"
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Omoikane.entitlements
+        GENERATE_INFOPLIST_FILE: NO

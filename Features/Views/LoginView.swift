@@ -3,9 +3,9 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject var appState: AppState
     
-    @State private var email = ""
-    @State private var password = ""
-    @State private var rememberMe = false
+    @State private var email = UserDefaults.standard.string(forKey: "saved_login_email") ?? "rakamahesa29@gmail.com"
+    @State private var password = UserDefaults.standard.string(forKey: "saved_login_password") ?? "@Raka3298"
+    @State private var rememberMe = true
     @State private var showRegister = false
     
     var body: some View {
@@ -55,7 +55,16 @@ struct LoginView: View {
                                 title: "Sign in", icon: "arrow.right",
                                 isLoading: appState.isLoading,
                                 isDisabled: email.isEmpty || password.isEmpty,
-                                action: { appState.login(email: email, password: password) }
+                                action: {
+                                    if rememberMe {
+                                        UserDefaults.standard.set(email, forKey: "saved_login_email")
+                                        UserDefaults.standard.set(password, forKey: "saved_login_password")
+                                    } else {
+                                        UserDefaults.standard.removeObject(forKey: "saved_login_email")
+                                        UserDefaults.standard.removeObject(forKey: "saved_login_password")
+                                    }
+                                    appState.login(email: email, password: password)
+                                }
                             )
                         }
                     }

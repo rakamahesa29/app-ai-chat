@@ -20,15 +20,23 @@ struct ChatRoomView: View {
     @State private var rateLimitMessage: String?
     @State private var selectedModel: String = "ollama"
     @State private var streamingTask: Task<Void, Never>? = nil
-    @State private var chatMode: ChatMode = .ask
+    @AppStorage("active_chat_mode") private var chatModeRaw: String = "ask"
+    private var chatMode: ChatMode {
+        get { ChatMode(rawValue: chatModeRaw) ?? .ask }
+        nonmutating set { chatModeRaw = newValue.rawValue }
+    }
     @State private var agentWorkspaceURL: URL? = nil
     @State private var showWorkspacePicker = false
     @State private var showWorkspaceTrustAlert = false
+    @ObservedObject private var securityManager = AgentSecurityManager.shared
+    @State private var showAgentSecuritySheet = false
     @State private var scrollProxy: ScrollViewProxy?
     @StateObject private var speechSynth = SpeechSynthesizer()
     @State private var isAutoSpeakEnabled = false
     @State private var agentProcessingText = ""
     @State private var agentTurnCount = 0
+    // Antigravity-style sequential checkpoints for current agent turn.
+    @State private var currentTurnCheckpoints: [AgentCheckpoint] = []
     // Cursor-CLI style running activity log for the current agent turn.
     @State private var agentLog: [AgentLogEvent] = []
     @State private var isAgentLogExpanded: Bool = true
@@ -55,23 +63,49 @@ struct ChatRoomView: View {
     var body: some View {
         VStack(spacing: 0) {
             chatHeader; Divider().foregroundColor(.hermes.border)
-            if chatMode == .agent && agentWorkspaceURL == nil { agentCompactBar }
+            if chatMode == .agent { agentCompactBar }
             if !agentProcessingText.isEmpty { agentProcessingBar }
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(spacing: HermesSpacing.lg) {
                         ForEach(messages) { msg in messageRow(for: msg).id(msg.id) }
+                        // Antigravity-style sequential checkpoints for currently running agent task
+                        if chatMode == .agent && !currentTurnCheckpoints.isEmpty {
+                            AgentCheckpointsSequenceView(checkpoints: currentTurnCheckpoints)
+                                .id("agent_checkpoints")
+                        }
                         // Inline Cursor-CLI-style agent activity log — appears above the streaming reply
                         if chatMode == .agent && !agentLog.isEmpty {
                             agentActivityBlock.id("agent_log")
+                        }
+                        // Inline Agent Confirmation Card (for Allow Per Task mode)
+                        if let confirmation = securityManager.pendingConfirmation {
+                            AgentConfirmationCard(confirmation: confirmation, onApprove: {
+                                securityManager.resolvePendingConfirmation(approved: true)
+                            }, onDeny: {
+                                securityManager.resolvePendingConfirmation(approved: false)
+                            })
+                            .id("agent_confirmation")
                         }
                         if !agentThinkingText.isEmpty { thinkingBubble.id("thinking") }
                         if isStreaming { streamingBubble.id("streaming") }
                         if isRateLimited { rateLimitBanner.id("rate_limit") }
                         if isStreaming {
                             Button(action: stopStreaming) {
-                                Label("Stop", systemImage: "stop.circle").font(.hermes.caption)
-                            }.foregroundColor(.hermes.danger).padding(.horizontal).id("stop_btn")
+                                HStack(spacing: 5) {
+                                    Image(systemName: "stop.circle.fill")
+                                    Text("Stop Generating")
+                                }
+                                .font(.hermes.captionMedium)
+                                .foregroundColor(.white)
+                                .padding(.horizontal, HermesSpacing.md)
+                                .padding(.vertical, HermesSpacing.xs + 2)
+                                .background(Color.hermes.danger)
+                                .cornerRadius(HermesRadius.sm)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .padding(.horizontal)
+                            .id("stop_btn")
                         }
                     }.padding(.horizontal, HermesSpacing.lg).padding(.vertical, HermesSpacing.lg)
                 }
@@ -85,9 +119,22 @@ struct ChatRoomView: View {
                 }
                 .onChange(of: agentLog.count) { scrollToBottom() }
             }
-            ComposerView(roomId: room.id, onSend: { text, images in
-                sendMessage(text, images: images)
-            }, isStreaming: isStreaming, isRateLimited: isRateLimited, rateLimitMessage: rateLimitMessage, chatMode: chatMode, hasWorkspace: agentWorkspaceURL != nil, isAutoSpeakEnabled: $isAutoSpeakEnabled)
+            ComposerView(
+                roomId: room.id,
+                onSend: { text, images in
+                    sendMessage(text, images: images)
+                },
+                onStop: {
+                    stopStreaming()
+                },
+                isStreaming: isStreaming,
+                isRateLimited: isRateLimited,
+                rateLimitMessage: rateLimitMessage,
+                chatMode: chatMode,
+                hasWorkspace: agentWorkspaceURL != nil || securityManager.accessScope == .fullSystem,
+                isAutoSpeakEnabled: $isAutoSpeakEnabled,
+                isWebSearchEnabled: $isWebSearchEnabled
+            )
             statusBar
         }
         .background(Color.hermes.bg)
@@ -96,6 +143,13 @@ struct ChatRoomView: View {
         .onChange(of: room.id) { selectedModel = room.model }
         .onChange(of: selectedModel) { _, new in onModelChange?(new) }
         .onChange(of: isAutoSpeakEnabled) { if !isAutoSpeakEnabled { speechSynth.stop() } }
+        .onDisappear {
+            streamingTask?.cancel()
+            securityManager.cancelPendingConfirmation()
+        }
+        .sheet(isPresented: $showAgentSecuritySheet) {
+            AgentSecuritySetupSheet()
+        }
         .alert("Workspace Trusted", isPresented: $showWorkspaceTrustAlert) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -120,6 +174,58 @@ struct ChatRoomView: View {
                 }
             }
             Spacer()
+            
+            // Mode Switcher (Ask vs Agent)
+            HStack(spacing: 2) {
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        chatMode = .ask
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 11))
+                        Text("Ask")
+                            .font(.hermes.captionMedium)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(chatMode == .ask ? Color.hermes.accent : Color.clear)
+                    .foregroundColor(chatMode == .ask ? .white : .hermes.muted)
+                    .cornerRadius(HermesRadius.sm)
+                }
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        chatMode = .agent
+                        if !securityManager.hasConfiguredSecurity {
+                            showAgentSecuritySheet = true
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hammer.fill")
+                            .font(.system(size: 11))
+                        Text("Agent")
+                            .font(.hermes.captionMedium)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(chatMode == .agent ? Color.orange : Color.clear)
+                    .foregroundColor(chatMode == .agent ? .white : .hermes.muted)
+                    .cornerRadius(HermesRadius.sm)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(2)
+            .background(Color.hermes.bg)
+            .cornerRadius(HermesRadius.md)
+            .overlay(
+                RoundedRectangle(cornerRadius: HermesRadius.md)
+                    .strokeBorder(Color.hermes.border, lineWidth: 1)
+            )
+
             if isEducationRoom { ToggleButton(label: "Skripsi", icon: "graduationcap", isOn: $isSkripsiMode, color: .orange) }
             DeepSeekProToggle(isOn: $isDeepSeekPro, visible: selectedModel == "deepseek")
             Picker("Model", selection: $selectedModel) {
@@ -131,19 +237,93 @@ struct ChatRoomView: View {
     private var agentCompactBar: some View {
         HStack(spacing: HermesSpacing.sm) {
             Image(systemName: "hammer").font(.system(size: 11)).foregroundColor(.hermes.accent)
-            Text("Select workspace folder for agent").font(.hermes.caption).foregroundColor(.hermes.muted)
+            
+            if securityManager.accessScope == .fullSystem {
+                HStack(spacing: 4) {
+                    Text("Akses:")
+                        .font(.hermes.caption)
+                        .foregroundColor(.hermes.muted)
+                    Text("Full Mac (Root)")
+                        .font(.hermes.captionMedium)
+                        .foregroundColor(.orange)
+                    Text("•")
+                        .foregroundColor(.hermes.muted)
+                    Text(securityManager.executionMode.title)
+                        .font(.hermes.captionMedium)
+                        .foregroundColor(.hermes.accent)
+                }
+            } else if let ws = agentWorkspaceURL {
+                HStack(spacing: 4) {
+                    Text("Workspace:")
+                        .font(.hermes.caption)
+                        .foregroundColor(.hermes.muted)
+                    Text(ws.lastPathComponent)
+                        .font(.hermes.captionMedium)
+                        .foregroundColor(.hermes.text)
+                    Button(action: {
+                        agentWorkspaceURL = nil
+                        UserDefaults.standard.removeObject(forKey: "agent_workspace_bookmark")
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.hermes.muted)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    Text("•")
+                        .foregroundColor(.hermes.muted)
+                    Text(securityManager.executionMode.title)
+                        .font(.hermes.captionMedium)
+                        .foregroundColor(.hermes.accent)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Text("Target:")
+                        .font(.hermes.caption)
+                        .foregroundColor(.hermes.muted)
+                    Text("Mac Global (~/)")
+                        .font(.hermes.captionMedium)
+                        .foregroundColor(.hermes.text)
+                    Text("•")
+                        .foregroundColor(.hermes.muted)
+                    Text(securityManager.executionMode.title)
+                        .font(.hermes.captionMedium)
+                        .foregroundColor(.hermes.accent)
+                }
+            }
+            
             Spacer()
-            // PlainButtonStyle strips the platform default button chrome so only our
-            // accent-tinted background remains (avoids the "double background" glitch).
+            
+            // Tombol Konfigurasi Otorisasi & Keamanan
+            Button(action: { showAgentSecuritySheet = true }) {
+                HStack(spacing: 4) {
+                    Image(systemName: securityManager.executionMode.icon)
+                        .font(.system(size: 10))
+                    Text(securityManager.executionMode == .autoAllow ? "Auto-Allow" : "Per Task")
+                        .font(.hermes.captionMedium)
+                }
+                .foregroundColor(.hermes.accent)
+                .padding(.horizontal, HermesSpacing.sm)
+                .padding(.vertical, 3)
+                .background(Color.hermes.accent.opacity(0.12))
+                .cornerRadius(HermesRadius.sm)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PlainButtonStyle())
+            
+            // Tombol Pilih Folder (Opsional)
             Button(action: { openWorkspacePicker() }) {
-                Text("Choose…")
-                    .font(.hermes.captionMedium)
-                    .foregroundColor(.hermes.accent)
-                    .padding(.horizontal, HermesSpacing.sm)
-                    .padding(.vertical, 3)
-                    .background(Color.hermes.accent.opacity(0.12))
-                    .cornerRadius(HermesRadius.sm)
-                    .contentShape(Rectangle())
+                HStack(spacing: 4) {
+                    Image(systemName: agentWorkspaceURL != nil ? "folder.fill" : "folder.badge.plus")
+                        .font(.system(size: 10))
+                    Text(agentWorkspaceURL != nil ? "Ubah Folder" : "Fokus Folder (Opsional)")
+                        .font(.hermes.captionMedium)
+                }
+                .foregroundColor(.hermes.textSecondary)
+                .padding(.horizontal, HermesSpacing.sm)
+                .padding(.vertical, 3)
+                .background(Color.hermes.hover)
+                .cornerRadius(HermesRadius.sm)
+                .contentShape(Rectangle())
             }
             .buttonStyle(PlainButtonStyle())
         }
@@ -276,9 +456,19 @@ struct ChatRoomView: View {
         HStack(spacing: HermesSpacing.md) {
             statusItem(icon: "cpu", text: modelLabel)
             statusItem(icon: "person.circle", text: personaLabel(room.persona))
-            if chatMode == .agent, let ws = agentWorkspaceURL { statusItem(icon: "hammer", text: ws.lastPathComponent, color: .hermes.accent) }
+            if chatMode == .agent {
+                let wsName = agentWorkspaceURL?.lastPathComponent ?? (securityManager.accessScope == .fullSystem ? "Full Mac (/)" : "Home (~)")
+                statusItem(icon: "hammer", text: wsName, color: .hermes.accent)
+            }
             Spacer()
-            Button(action: { withAnimation { chatMode = chatMode == .ask ? .agent : .ask } }) {
+            Button(action: {
+                withAnimation {
+                    chatMode = chatMode == .ask ? .agent : .ask
+                    if chatMode == .agent && !securityManager.hasConfiguredSecurity {
+                        showAgentSecuritySheet = true
+                    }
+                }
+            }) {
                 HStack(spacing: 3) { Image(systemName: chatMode.icon).font(.system(size: 9)); Text(chatMode.rawValue) }
                     .font(.hermes.badge).padding(.horizontal, HermesSpacing.sm).padding(.vertical, 2)
                     .background(chatMode == .agent ? Color.orange.opacity(0.15) : Color.hermes.hover)
@@ -304,9 +494,45 @@ struct ChatRoomView: View {
                     DisclosureGroup("Reasoning") { Text(r).font(.hermes.mono).foregroundColor(.hermes.muted).padding(.vertical, 4) }
                         .font(.hermes.caption).foregroundColor(.purple).padding(HermesSpacing.sm).background(Color.purple.opacity(0.06)).cornerRadius(HermesRadius.md)
                 }
+                if !msg.checkpoints.isEmpty {
+                    AgentCheckpointsSequenceView(checkpoints: msg.checkpoints)
+                        .padding(.bottom, 2)
+                }
                 VStack(alignment: .leading, spacing: HermesSpacing.sm) {
                     RichMessageContent(content: msg.content, isUser: msg.isUser)
-                }.padding(HermesSpacing.md).background(msg.isUser ? Color.hermes.accent : Color.hermes.card.opacity(0.5)).cornerRadius(HermesRadius.lg).overlay(RoundedRectangle(cornerRadius: HermesRadius.lg).strokeBorder(msg.isUser ? Color.clear : Color.hermes.border, lineWidth: 1))
+                }
+                .textSelection(.enabled)
+                .padding(HermesSpacing.md)
+                .background(msg.isUser ? Color.hermes.accent : Color.hermes.card.opacity(0.5))
+                .cornerRadius(HermesRadius.lg)
+                .overlay(RoundedRectangle(cornerRadius: HermesRadius.lg).strokeBorder(msg.isUser ? Color.clear : Color.hermes.border, lineWidth: 1))
+                .contextMenu {
+                    Button {
+                        copy(msg)
+                    } label: {
+                        Label("Salin Pesan (Copy)", systemImage: "doc.on.doc")
+                    }
+                    if !msg.isUser {
+                        Button {
+                            if speechSynth.isSpeaking { speechSynth.stop() }
+                            else { speechSynth.speak(speakableText(msg.content), messageId: msg.id) }
+                        } label: {
+                            Label(speechSynth.isSpeaking ? "Hentikan Suara" : "Bacakan (Read Aloud)", systemImage: speechSynth.isSpeaking ? "speaker.slash" : "speaker.wave.2")
+                        }
+                        if isSkripsiMode {
+                            Divider()
+                            Button { exportToDocx(msg) } label: { Label("Export Word (.docx)", systemImage: "doc.text") }
+                            Button { exportToGoogleDocs(msg) } label: { Label("Export Google Docs", systemImage: "doc.text.image") }
+                            Button { exportToGoogleSheets(msg) } label: { Label("Export Google Sheets", systemImage: "tablecells") }
+                        }
+                    }
+                    Divider()
+                    Button(role: .destructive) {
+                        deleteMsg(msg)
+                    } label: {
+                        Label("Hapus Pesan", systemImage: "trash")
+                    }
+                }
                 // Action buttons
                 HStack(spacing: HermesSpacing.sm) {
                     if !msg.isUser {
@@ -352,6 +578,7 @@ struct ChatRoomView: View {
                     .foregroundColor(.secondary)
                     .padding(.top, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
             } label: {
                 Label("DeepSeek is thinking...", systemImage: "brain")
                     .foregroundColor(.hermes.accent)
@@ -360,6 +587,7 @@ struct ChatRoomView: View {
             .padding()
             .background(Color.hermes.surface)
             .cornerRadius(HermesSpacing.md)
+            .textSelection(.enabled)
             
             Spacer()
         }
@@ -372,6 +600,7 @@ struct ChatRoomView: View {
                     ProgressView().scaleEffect(0.8)
                 } else {
                     RichMessageContent(content: streamingText, isUser: false)
+                        .textSelection(.enabled)
                         .padding(HermesSpacing.md)
                         .background(Color.hermes.card.opacity(0.5))
                         .cornerRadius(HermesRadius.lg)
@@ -479,10 +708,6 @@ struct ChatRoomView: View {
     private func sendMessage(_ text: String, images: [String] = []) {
         guard !isRateLimited else { return }
         agentTurnCount = 0
-        if chatMode == .agent, agentWorkspaceURL == nil {
-            rateLimitMessage = "Select workspace folder for Agent mode"; isRateLimited = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { isRateLimited = false; rateLimitMessage = nil }; return
-        }
         streamingTask?.cancel()
         let um = ChatMessage(content: text, isUser: true, hasWebContext: isWebSearchEnabled)
         withAnimation { messages.append(um) }
@@ -495,6 +720,7 @@ struct ChatRoomView: View {
         // Reset agent activity log for this new turn (only shown in agent mode).
         if chatMode == .agent {
             agentLog.removeAll()
+            currentTurnCheckpoints.removeAll()
             isAgentLogExpanded = true
             logAgent("Sending request to agent…", level: .info, icon: "paperplane")
         }
@@ -504,7 +730,8 @@ struct ChatRoomView: View {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         if let t = APIConfig.token { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
-        req.httpBody = APIClient.shared.sendMessageBody(message: text, model: selectedModel, useWebSearch: isWebSearchEnabled, deepseekPro: isDeepSeekPro, skripsiMode: isSkripsiMode, workspacePath: agentWorkspaceURL?.path, chatMode: chatMode == .agent ? "agent" : "ask", images: images)
+        let effectiveWorkspacePath = agentWorkspaceURL?.path ?? (securityManager.accessScope == .fullSystem ? "/" : FileManager.default.homeDirectoryForCurrentUser.path)
+        req.httpBody = APIClient.shared.sendMessageBody(message: text, model: selectedModel, useWebSearch: isWebSearchEnabled, deepseekPro: isDeepSeekPro, skripsiMode: isSkripsiMode, workspacePath: effectiveWorkspacePath, chatMode: chatMode == .agent ? "agent" : "ask", images: images)
         var full = ""
         streamingTask = Task {
             defer { streamingTask = nil }
@@ -606,51 +833,98 @@ struct ChatRoomView: View {
         }
         defer { if bookmarkAccessing { base?.stopAccessingSecurityScopedResource() } }
         
+        let isFullSystem = securityManager.accessScope == .fullSystem
+        if base == nil {
+            base = isFullSystem ? URL(fileURLWithPath: "/") : FileManager.default.homeDirectoryForCurrentUser
+        }
+        
         guard let base = base else {
             print("❌ [Agent] No workspace URL!")
             await MainActor.run { agentProcessingText = "Error: No workspace selected" }
             return [["tool": "error", "path": "", "status": "error", "message": "No workspace selected"]]
         }
         
-        print("📁 [Agent] Workspace: \(base.path)")
+        print("📁 [Agent] Workspace base: \(base.path) (Full System: \(isFullSystem))")
         
         let finalBase = base
-        return await withTaskGroup(of: [String: Any].self) { group in
-            for req in requests {
-                group.addTask {
-                    return await self.executeSingleTool(req, base: finalBase)
-                }
+        var results: [[String: Any]] = []
+        
+        // Execute sequentially to handle sequential user approvals in Allow Per Task mode
+        for req in requests {
+            if Task.isCancelled {
+                print("🛑 [Agent] Tool loop cancelled by user")
+                break
             }
-            
-            var results: [[String: Any]] = []
-            for await res in group { results.append(res) }
-            
-            await MainActor.run {
-                self.agentProcessingText = "Sending results…"
-                self.logAgent("Sending results back to AI…", level: .info, icon: "paperplane")
-            }
-            return results
+            let res = await self.executeSingleTool(req, base: finalBase, isFullSystem: isFullSystem)
+            results.append(res)
         }
+        
+        await MainActor.run {
+            self.agentProcessingText = "Sending results…"
+            self.logAgent("Sending results back to AI…", level: .info, icon: "paperplane")
+        }
+        return results
     }
     
-    private func executeSingleTool(_ req: [String: Any], base: URL) async -> [String: Any] {
+    private func executeSingleTool(_ req: [String: Any], base: URL, isFullSystem: Bool) async -> [String: Any] {
         let tool = req["tool"] as? String ?? ""
         var path = req["path"] as? String ?? ""
         let content = req["content"] as? String
         
-        let bp = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
-        if path.hasPrefix(bp + "/") {
-            path = String(path.dropFirst(bp.count + 1))
-        } else if path.hasPrefix("/") && path != "/" {
-            path = String(path.dropFirst())
+        if Task.isCancelled {
+            return ["tool": tool, "path": path, "status": "error", "message": "Dihentikan oleh pengguna"]
         }
-        let fullPath = base.appendingPathComponent(path)
         
-        let label = toolLabel(tool, path: path)
+        // Expand tilde (~) if present (e.g. ~/Desktop/test.txt -> /Users/administrator/Desktop/test.txt)
+        if path.hasPrefix("~") {
+            path = (path as NSString).expandingTildeInPath
+        }
+        
+        let bp = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
+        let fullPath: URL
+        if path.hasPrefix("/") {
+            // Absolute path
+            fullPath = URL(fileURLWithPath: path)
+        } else {
+            // Relative path
+            if path.hasPrefix(bp + "/") {
+                path = String(path.dropFirst(bp.count + 1))
+            }
+            fullPath = base.appendingPathComponent(path)
+        }
+        
+        // Check sandbox boundary only if user specifically pinned a workspace
+        if !isFullSystem && agentWorkspaceURL != nil && !path.hasPrefix("/") {
+            guard !path.contains(".."), fullPath.path.hasPrefix(bp) else {
+                return ["tool": tool, "path": path, "status": "error", "message": "Security: path traversal outside workspace blocked"]
+            }
+        }
+        
+        let isRoot = fullPath.path.hasPrefix("/System") ||
+                     fullPath.path.hasPrefix("/bin") ||
+                     fullPath.path.hasPrefix("/sbin") ||
+                     fullPath.path.hasPrefix("/usr") ||
+                     fullPath.path.hasPrefix("/private") ||
+                     fullPath.path.hasPrefix("/etc") ||
+                     fullPath.path.hasPrefix("/var") ||
+                     fullPath.path == "/"
+        
+        let label = toolLabel(tool, path: fullPath.path)
         await MainActor.run { agentProcessingText = label }
         
-        guard !path.contains(".."), fullPath.path.hasPrefix(bp) else {
-            return ["tool": tool, "path": path, "status": "error", "message": "Security: path traversal blocked"]
+        // Request confirmation and trigger double verification macOS notification
+        let approved = await securityManager.requestApproval(
+            tool: tool,
+            path: fullPath.path,
+            content: content,
+            isRoot: isRoot
+        )
+        
+        if !approved {
+            await MainActor.run {
+                logAgent("Operation cancelled by user: \(fullPath.path)", level: .error, icon: "hand.raised.fill")
+            }
+            return ["tool": tool, "path": fullPath.path, "status": "error", "message": "Operation cancelled by user"]
         }
         
         var result: [String: Any] = [:]
@@ -662,40 +936,68 @@ struct ChatRoomView: View {
                 try (content ?? "").write(to: fullPath, atomically: true, encoding: .utf8)
                 let size = (try? fullPath.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
                 if FileManager.default.fileExists(atPath: fullPath.path) {
-                    result = ["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path) (\(size) bytes)"]
-                    await MainActor.run { logAgent("wrote \(path) (\(size) B)", level: .success) }
+                    result = ["tool": "write_file", "path": fullPath.path, "status": "success", "message": "File created: \(fullPath.path) (\(size) bytes)"]
+                    await MainActor.run { logAgent("wrote \(fullPath.lastPathComponent) (\(size) B)", level: .success) }
                 } else {
                     try writeViaShell(fullPath: fullPath, content: content ?? "")
-                    result = ["tool": "write_file", "path": path, "status": "success", "message": "File created via shell: \(path)"]
-                    await MainActor.run { logAgent("wrote \(path) (via shell)", level: .success) }
+                    result = ["tool": "write_file", "path": fullPath.path, "status": "success", "message": "File created via shell: \(fullPath.path)"]
+                    await MainActor.run { logAgent("wrote \(fullPath.lastPathComponent) (via shell)", level: .success) }
                 }
             } catch {
                 do {
                     try writeViaShell(fullPath: fullPath, content: content ?? "")
-                    result = ["tool": "write_file", "path": path, "status": "success", "message": "File created: \(path)"]
-                    await MainActor.run { logAgent("wrote \(path) (via shell fallback)", level: .success) }
+                    result = ["tool": "write_file", "path": fullPath.path, "status": "success", "message": "File created: \(fullPath.path)"]
+                    await MainActor.run { logAgent("wrote \(fullPath.lastPathComponent) (via shell)", level: .success) }
                 } catch {
-                    result = ["tool": "write_file", "path": path, "status": "error", "message": "Write failed: \(error.localizedDescription)"]
-                    await MainActor.run { logAgent("write failed: \(path) — \(error.localizedDescription)", level: .error) }
+                    if isFullSystem {
+                        do {
+                            try writeViaRoot(fullPath: fullPath, content: content ?? "")
+                            result = ["tool": "write_file", "path": fullPath.path, "status": "success", "message": "File created with root privileges: \(fullPath.path)"]
+                            await MainActor.run { logAgent("wrote \(fullPath.lastPathComponent) (root privileges)", level: .success, icon: "lock.open.fill") }
+                        } catch let rootError {
+                            result = ["tool": "write_file", "path": fullPath.path, "status": "error", "message": "Root write failed: \(rootError.localizedDescription)"]
+                            await MainActor.run { logAgent("root write failed: \(fullPath.path) — \(rootError.localizedDescription)", level: .error) }
+                        }
+                    } else {
+                        result = ["tool": "write_file", "path": fullPath.path, "status": "error", "message": "Write failed: \(error.localizedDescription)"]
+                        await MainActor.run { logAgent("write failed: \(fullPath.path) — \(error.localizedDescription)", level: .error) }
+                    }
                 }
             }
         case "read_file":
             do {
                 let data = try String(contentsOf: fullPath, encoding: .utf8)
-                result = ["tool": "read_file", "path": path, "status": "success", "message": "Read \(data.count) chars", "content": data]
-                await MainActor.run { logAgent("read \(path) (\(data.count) chars)", level: .success) }
+                result = ["tool": "read_file", "path": fullPath.path, "status": "success", "message": "Read \(data.count) chars", "content": data]
+                await MainActor.run { logAgent("read \(fullPath.lastPathComponent) (\(data.count) chars)", level: .success) }
             } catch {
-                result = ["tool": "read_file", "path": path, "status": "error", "message": "Cannot read: \(path)"]
-                await MainActor.run { logAgent("read failed: \(path)", level: .error) }
+                do {
+                    let data = try readViaShell(fullPath: fullPath, isRoot: isRoot)
+                    result = ["tool": "read_file", "path": fullPath.path, "status": "success", "message": "Read \(data.count) chars", "content": data]
+                    await MainActor.run { logAgent("read \(fullPath.lastPathComponent) (via shell)", level: .success) }
+                } catch {
+                    result = ["tool": "read_file", "path": fullPath.path, "status": "error", "message": "Cannot read: \(fullPath.path)"]
+                    await MainActor.run { logAgent("read failed: \(fullPath.path)", level: .error) }
+                }
             }
         case "delete_file":
             do {
                 try FileManager.default.removeItem(at: fullPath)
-                result = ["tool": "delete_file", "path": path, "status": "success", "message": "Deleted: \(path)"]
-                await MainActor.run { logAgent("deleted \(path)", level: .success) }
+                result = ["tool": "delete_file", "path": fullPath.path, "status": "success", "message": "Deleted: \(fullPath.path)"]
+                await MainActor.run { logAgent("deleted \(fullPath.lastPathComponent)", level: .success) }
             } catch {
-                result = ["tool": "delete_file", "path": path, "status": "error", "message": "Delete failed: \(error.localizedDescription)"]
-                await MainActor.run { logAgent("delete failed: \(path)", level: .error) }
+                if isFullSystem {
+                    do {
+                        try deleteViaRoot(fullPath: fullPath)
+                        result = ["tool": "delete_file", "path": fullPath.path, "status": "success", "message": "Deleted with root privileges: \(fullPath.path)"]
+                        await MainActor.run { logAgent("deleted \(fullPath.lastPathComponent) (root privileges)", level: .success, icon: "lock.open.fill") }
+                    } catch let rootError {
+                        result = ["tool": "delete_file", "path": fullPath.path, "status": "error", "message": "Root delete failed: \(rootError.localizedDescription)"]
+                        await MainActor.run { logAgent("delete failed: \(fullPath.path) — \(rootError.localizedDescription)", level: .error) }
+                    }
+                } else {
+                    result = ["tool": "delete_file", "path": fullPath.path, "status": "error", "message": "Delete failed: \(error.localizedDescription)"]
+                    await MainActor.run { logAgent("delete failed: \(fullPath.path)", level: .error) }
+                }
             }
         case "list_files":
             if let items = try? FileManager.default.contentsOfDirectory(at: fullPath, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey], options: .skipsHiddenFiles) {
@@ -705,14 +1007,14 @@ struct ChatRoomView: View {
                     let size = (try? item.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                     files.append(["name": item.lastPathComponent, "type": isDir ? "dir" : "file", "size": size as Any])
                 }
-                result = ["tool": "list_files", "path": path, "status": "success", "message": "\(files.count) items", "files": files]
-                await MainActor.run { logAgent("listed \(path) (\(files.count) items)", level: .success) }
+                result = ["tool": "list_files", "path": fullPath.path, "status": "success", "message": "\(files.count) items", "files": files]
+                await MainActor.run { logAgent("listed \(fullPath.lastPathComponent) (\(files.count) items)", level: .success) }
             } else {
-                result = ["tool": "list_files", "path": path, "status": "error", "message": "Cannot list: \(path)"]
-                await MainActor.run { logAgent("list failed: \(path)", level: .error) }
+                result = ["tool": "list_files", "path": fullPath.path, "status": "error", "message": "Cannot list: \(fullPath.path)"]
+                await MainActor.run { logAgent("list failed: \(fullPath.path)", level: .error) }
             }
         default:
-            result = ["tool": tool, "path": path, "status": "error", "message": "Unknown tool: \(tool)"]
+            result = ["tool": tool, "path": fullPath.path, "status": "error", "message": "Unknown tool: \(tool)"]
             await MainActor.run { logAgent("unknown tool: \(tool)", level: .error) }
         }
         return result
@@ -758,6 +1060,18 @@ struct ChatRoomView: View {
             logAgent("Searching internal knowledge…", level: .info, icon: "magnifyingglass")
         case "using_model_knowledge":
             logAgent("Using model knowledge…", level: .info, icon: "brain")
+        case "agent_checkpoint":
+            let action = payload["action"] as? String ?? "executed"
+            let path = payload["path"] as? String ?? ""
+            let file = payload["file"] as? String ?? (path as NSString).lastPathComponent
+            let step = payload["step"] as? Int ?? 1
+            let statusCode = payload["status_code"] as? String ?? "success"
+            let msg = payload["message"] as? String ?? ""
+            let cp = AgentCheckpoint(action: action, path: path, file: file, step: step, statusCode: statusCode, message: msg)
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                currentTurnCheckpoints.append(cp)
+            }
+            logAgent("\(action.capitalized): \(file)", level: .success, icon: "checkmark.circle")
         default:
             // Log any unrecognized backend status so nothing is silently dropped.
             let msg = (payload["message"] as? String) ?? status
@@ -779,7 +1093,6 @@ struct ChatRoomView: View {
     private func writeViaShell(fullPath: URL, content: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        // Use stdin redirection instead of positional params to avoid $1 Swift issue
         let escapedPath = fullPath.path.replacingOccurrences(of: "'", with: "'\\''")
         process.arguments = ["-c", "cat > '\(escapedPath)'"]
         
@@ -797,98 +1110,180 @@ struct ChatRoomView: View {
         
         guard process.terminationStatus == 0 else {
             throw NSError(domain: "Agent", code: Int(process.terminationStatus), 
-                         userInfo: [NSLocalizedDescriptionKey: "Shell exit code \(process.terminationStatus)"])
+                          userInfo: [NSLocalizedDescriptionKey: "Shell exit code \(process.terminationStatus)"])
         }
     }
     
+    private func readViaShell(fullPath: URL, isRoot: Bool) throws -> String {
+        let escapedPath = fullPath.path.replacingOccurrences(of: "'", with: "'\\''")
+        if isRoot {
+            return try securityManager.executeRootCommand("cat '\(escapedPath)'")
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "cat '\(escapedPath)'"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let str = String(data: data, encoding: .utf8) else {
+            throw NSError(domain: "Agent", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode output"])
+        }
+        return str
+    }
+    
+    private func writeViaRoot(fullPath: URL, content: String) throws {
+        let b64 = Data(content.utf8).base64EncodedString()
+        let escapedPath = fullPath.path.replacingOccurrences(of: "'", with: "'\\''")
+        let dir = fullPath.deletingLastPathComponent().path.replacingOccurrences(of: "'", with: "'\\''")
+        let cmd = "mkdir -p '\(dir)' && echo '\(b64)' | base64 -d > '\(escapedPath)'"
+        _ = try securityManager.executeRootCommand(cmd)
+    }
+    
+    private func deleteViaRoot(fullPath: URL) throws {
+        let escapedPath = fullPath.path.replacingOccurrences(of: "'", with: "'\\''")
+        let cmd = "rm -rf '\(escapedPath)'"
+        _ = try securityManager.executeRootCommand(cmd)
+    }
+    
     private func continueAgent(token: String, results: [[String: Any]]) async {
-        let url = APIClient.shared.sendAgentContinueURL(roomId: room.id)
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.timeoutInterval = 30
-        if let t = APIConfig.token { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
-        req.httpBody = APIClient.shared.sendAgentContinueBody(stateToken: token, results: results)
+        var currentToken = token
+        var currentResults = results
+        var finalFull = ""
         
-        var full = ""
-        do {
-            agentProcessingText = "Sending results to AI…"
-            print("📡 [Agent:Continue] Sending \(results.count) results...")
-            let (bytes, response) = try await APIClient.streamingSession.bytes(for: req)
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("📡 [Agent:Continue] Connected: \(statusCode)")
-            agentProcessingText = statusCode == 200 ? "Waiting for AI…" : "Server responded \(statusCode)"
+        while !Task.isCancelled {
+            let url = APIClient.shared.sendAgentContinueURL(roomId: room.id)
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue("application/json", forHTTPHeaderField: "Accept")
+            req.timeoutInterval = 60
+            if let t = APIConfig.token { req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization") }
+            req.httpBody = APIClient.shared.sendAgentContinueBody(stateToken: currentToken, results: currentResults)
             
-            var agentStateToken: String? = nil
-            var agentRequests: [[String: Any]]? = nil
+            var turnFull = ""
+            var nextStateToken: String? = nil
+            var nextRequests: [[String: Any]]? = nil
+            var awaitingTools = false
             
-            for try await line in bytes.lines {
-                if Task.isCancelled { break }
-                guard line.hasPrefix("data: "), let d = line.dropFirst(6).data(using: .utf8) else { continue }
-                guard let o = try? JSONSerialization.jsonObject(with: d) as? [String:Any] else { continue }
-                // First content clears the "Waiting" label
-                if o["content"] != nil && agentProcessingText == "Waiting for AI…" { agentProcessingText = "" }
-                if let e = o["error"] as? String {
-                    streamingText = "Error: \(e)"; agentProcessingText = ""
-                    break
-                }
-                if let type = o["type"] as? String {
-                    if type == "meta" {
-                        if let s = o["status"] as? String {
-                            handleAgentMetaEvent(s, payload: o)
-                            if s == "agent_tool_requests" {
-                                agentStateToken = o["state_token"] as? String
-                                agentRequests = o["requests"] as? [[String: Any]]
-                                agentProcessingText = "Executing more tools..."
-                            } else if s == "agent_analyzing" || s == "agent_thinking" {
-                                agentProcessingText = "AI is thinking…"
+            do {
+                await MainActor.run { agentProcessingText = "Sending results to AI…" }
+                print("📡 [Agent:Continue] Sending \(currentResults.count) results...")
+                let (bytes, response) = try await APIClient.streamingSession.bytes(for: req)
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+                print("📡 [Agent:Continue] Connected: \(statusCode)")
+                await MainActor.run { agentProcessingText = statusCode == 200 ? "Waiting for AI…" : "Server responded \(statusCode)" }
+                
+                for try await line in bytes.lines {
+                    if Task.isCancelled { break }
+                    guard line.hasPrefix("data: "), let d = line.dropFirst(6).data(using: .utf8) else { continue }
+                    guard let o = try? JSONSerialization.jsonObject(with: d) as? [String:Any] else { continue }
+                    
+                    if o["content"] != nil && agentProcessingText == "Waiting for AI…" {
+                        await MainActor.run { agentProcessingText = "" }
+                    }
+                    if let e = o["error"] as? String {
+                        await MainActor.run {
+                            streamingText = "Error: \(e)"
+                            agentProcessingText = ""
+                        }
+                        break
+                    }
+                    if let type = o["type"] as? String {
+                        if type == "meta" {
+                            if let s = o["status"] as? String {
+                                await MainActor.run {
+                                    handleAgentMetaEvent(s, payload: o)
+                                    if s == "agent_tool_requests" {
+                                        nextStateToken = o["state_token"] as? String
+                                        nextRequests = o["requests"] as? [[String: Any]]
+                                        agentProcessingText = "Executing more tools..."
+                                    } else if s == "agent_analyzing" || s == "agent_thinking" {
+                                        agentProcessingText = "AI is thinking…"
+                                    }
+                                }
                             }
+                            continue
+                        } else if type == "thinking_start" {
+                            await MainActor.run {
+                                agentThinkingText = ""
+                                isAgentThinkingExpanded = true
+                            }
+                            continue
+                        } else if type == "thinking" {
+                            if let c = o["content"] as? String {
+                                await MainActor.run { agentThinkingText += c }
+                            }
+                            continue
+                        } else if type == "thinking_end" {
+                            continue
+                        } else if type == "chunk" {
+                            if let c = o["content"] as? String {
+                                turnFull += c
+                                await MainActor.run { streamingText = turnFull }
+                            }
+                            continue
                         }
-                        continue
-                    } else if type == "thinking_start" {
-                        agentThinkingText = ""
-                        isAgentThinkingExpanded = true
-                        continue
-                    } else if type == "thinking" {
-                        if let c = o["content"] as? String { agentThinkingText += c }
-                        continue
-                    } else if type == "thinking_end" {
-                        continue
-                    } else if type == "chunk" {
-                        if let c = o["content"] as? String { full += c; streamingText = full }
-                        continue
+                    }
+                    if let c = o["content"] as? String {
+                        turnFull += c
+                        await MainActor.run { streamingText = turnFull }
+                    }
+                    if o["done"] as? Bool == true {
+                        if o["awaiting_tools"] as? Bool == true, let t2 = nextStateToken, let r2 = nextRequests {
+                            awaitingTools = true
+                            nextStateToken = t2
+                            nextRequests = r2
+                        }
+                        break
                     }
                 }
-                if let c = o["content"] as? String { full += c; streamingText = full }
-                if o["done"] as? Bool == true {
-                    // More tools? Loop
-                    if o["awaiting_tools"] as? Bool == true, let t2 = agentStateToken, let r2 = agentRequests {
-                        guard agentTurnCount < 8 else {
-                            streamingText = "⚠️ Agent reached max turns. Try a simpler request."
-                            agentProcessingText = ""; break
-                        }
-                        agentTurnCount += 1
-                        print("📡 [Agent] Executing \(r2.count) more tools (turn \(agentTurnCount))...")
-                        let results2 = await executeAgentToolsAsync(r2, workspace: agentWorkspaceURL)
-                        await continueAgent(token: t2, results: results2)
+            } catch {
+                if !Task.isCancelled {
+                    print("📡 [Agent:Continue] error: \(error)")
+                    await MainActor.run {
+                        streamingText = "Error: \(error.localizedDescription)"
+                        agentProcessingText = ""
+                        logAgent("continue error: \(error.localizedDescription)", level: .error)
+                    }
+                }
+                break
+            }
+            
+            if Task.isCancelled { break }
+            
+            finalFull = turnFull
+            
+            if awaitingTools, let t2 = nextStateToken, let r2 = nextRequests {
+                guard agentTurnCount < 30 else {
+                    await MainActor.run {
+                        streamingText = "⚠️ Agent reached max turns. Try a simpler request."
+                        agentProcessingText = ""
                     }
                     break
                 }
-            }
-        } catch {
-            if !Task.isCancelled {
-                print("📡 [Agent:Continue] error: \(error)")
-                streamingText = "Error: \(error.localizedDescription)"
-                agentProcessingText = ""
-                logAgent("continue error: \(error.localizedDescription)", level: .error)
+                agentTurnCount += 1
+                print("📡 [Agent] Executing \(r2.count) more tools (turn \(agentTurnCount))...")
+                let nextResults = await executeAgentToolsAsync(r2, workspace: agentWorkspaceURL)
+                if Task.isCancelled { break }
+                
+                currentToken = t2
+                currentResults = nextResults
+                // Continues loop to the next checkpoint!
+            } else {
+                // Done with all tool checkpoints!
+                break
             }
         }
+        
         if !Task.isCancelled {
-            print("📡 [Agent:Continue] Done. Response: \(full.count) chars")
-            finalizeReply(full: full)
-            if !agentLog.isEmpty {
-                logAgent("done (\(full.count) chars)", level: .success, icon: "flag.checkered")
+            print("📡 [Agent:Continue] Done all checkpoints. Response: \(finalFull.count) chars")
+            await MainActor.run {
+                finalizeReply(full: finalFull)
+                if !agentLog.isEmpty {
+                    logAgent("done (\(finalFull.count) chars)", level: .success, icon: "flag.checkered")
+                }
             }
         }
     }
@@ -908,8 +1303,9 @@ struct ChatRoomView: View {
 
         withTransaction(transaction) {
             if !full.isEmpty {
-                let botMsg = ChatMessage(content: full, isUser: false, hasReasoning: isDeepSeekPro)
+                let botMsg = ChatMessage(content: full, isUser: false, hasReasoning: isDeepSeekPro, checkpoints: currentTurnCheckpoints)
                 messages.append(botMsg)
+                currentTurnCheckpoints = []
                 if isAutoSpeakEnabled { speechSynth.speak(speakableText(full), messageId: botMsg.id) }
             }
             isStreaming = false
@@ -920,7 +1316,25 @@ struct ChatRoomView: View {
             updateMemoryCycle()
         }
     }
-    private func stopStreaming() { streamingTask?.cancel(); streamingTask = nil; isStreaming = false; streamingText = ""; agentProcessingText = ""; Task { try? await APIClient.shared.clearLocks() } }
+    
+    private func stopStreaming() {
+        streamingTask?.cancel()
+        streamingTask = nil
+        isStreaming = false
+        if !streamingText.isEmpty && !streamingText.hasPrefix("Error") && !streamingText.hasPrefix("⚠️") {
+            let botMsg = ChatMessage(content: streamingText + "\n\n*(Dihentikan)*", isUser: false, checkpoints: currentTurnCheckpoints)
+            messages.append(botMsg)
+            currentTurnCheckpoints = []
+        }
+        streamingText = ""
+        agentProcessingText = ""
+        agentThinkingText = ""
+        securityManager.cancelPendingConfirmation()
+        if chatMode == .agent && !agentLog.isEmpty {
+            logAgent("Dihentikan oleh pengguna", level: .warn, icon: "stop.circle")
+        }
+        Task { try? await APIClient.shared.clearLocks() }
+    }
     
     /// Strip HTML + DeepSeek thinking blocks for clean TTS output.
     private func speakableText(_ content: String) -> String {
@@ -978,9 +1392,11 @@ private struct RichMessageContent: View {
                         thinkingBlock(summary: summary, body: body)
                     case .markdown(let md):
                         Markdown(md)
+                            .textSelection(.enabled)
                     }
                 }
             }
+            .textSelection(.enabled)
         }
     }
     
@@ -991,6 +1407,7 @@ private struct RichMessageContent: View {
                 .foregroundColor(.hermes.muted)
                 .lineSpacing(4)
                 .padding(.vertical, 4)
+                .textSelection(.enabled)
         } label: {
             Label(summary, systemImage: "brain.head.profile")
                 .font(.hermes.caption)
@@ -999,6 +1416,7 @@ private struct RichMessageContent: View {
         .padding(10)
         .background(Color.purple.opacity(0.06))
         .cornerRadius(HermesRadius.md)
+        .textSelection(.enabled)
     }
     
     struct Block: Identifiable {

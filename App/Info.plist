@@ -2,53 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!-- App Identity -->
-    <key>CFBundleDisplayName</key>
-    <string>Omoikane AI</string>
-    <key>CFBundleName</key>
-    <string>Omoikane AI</string>
-    <key>CFBundleShortVersionString</key>
-    <string>0.0.1</string>
-    <key>CFBundleVersion</key>
-    <string>1</string>
-    <key>NSHumanReadableCopyright</key>
-    <string>Copyright © 2025 Raka Mahesa. All rights reserved.</string>
-
-    <!-- Fonts -->
-    <key>ATSApplicationFontsPath</key>
-    <string>Fonts</string>
-
-    <!-- Network -->
-    <key>NSAppTransportSecurity</key>
-    <dict>
-        <key>NSAllowsArbitraryLoads</key>
-        <true/>
-        <key>NSAllowsLocalNetworking</key>
-        <true/>
-    </dict>
-
-    <!-- Local Network Access (macOS 15+) -->
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>Omoikane AI connects to your local Laravel API server for chat, agent, and data features.</string>
-
-    <!-- Microphone (voice input) -->
-    <key>NSMicrophoneUsageDescription</key>
-    <string>Omoikane AI uses the microphone to convert your speech into text for chat messages. Your voice data is processed on-device and is not stored.</string>
-
-    <!-- Speech Recognition -->
-    <key>NSSpeechRecognitionUsageDescription</key>
-    <string>Omoikane AI uses speech recognition to transcribe your voice into chat messages in real time.</string>
-
-    <!-- Folder / File Access (Agent Mode) -->
-    <key>NSDocumentsFolderUsageDescription</key>
-    <string>Omoikane AI needs access to folders for Agent Mode — to read, create, edit, and delete files as instructed by you.</string>
-    <key>NSDesktopFolderUsageDescription</key>
-    <string>Omoikane AI needs access to folders for Agent Mode file operations.</string>
-    <key>NSFileProviderDomainUsageDescription</key>
-    <string>Omoikane AI accesses files in your selected workspace for Agent Mode operations: indexing, reading, creating, modifying, and deleting files.</string>
-
-    <!-- macOS Minimum Version -->
-    <key>LSMinimumSystemVersion</key>
-    <string>14.0</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
 </dict>
 </plist>

@@ -7,15 +7,16 @@ import AppKit
 struct ComposerView: View {
     var roomId: String? = nil
     var onSend: ((String, [String]) -> Void)?
+    var onStop: (() -> Void)? = nil
     var isStreaming: Bool = false
     var isRateLimited: Bool = false
     var rateLimitMessage: String? = nil
     var chatMode: ChatRoomView.ChatMode = .ask
     var hasWorkspace: Bool = false
     @Binding var isAutoSpeakEnabled: Bool
+    @Binding var isWebSearchEnabled: Bool
     
     @State private var messageText = ""
-    @State private var isWebSearchEnabled = false
     @State private var attachedFiles: [AttachedFile] = []
     @State private var pastedCode: String? = nil
     @State private var showFilePicker = false
@@ -37,11 +38,9 @@ struct ComposerView: View {
     private var placeholder: String {
         switch chatMode {
         case .agent:
-            return hasWorkspace
-                ? "Tell the agent what to do..."
-                : "Select a workspace folder first..."
+            return "Beri tahu agen apa yang harus dibuat atau diperbaiki di Mac Anda..."
         case .ask:
-            return "Message AI..."
+            return "Tanyakan apa saja kepada AI..."
         }
     }
     
@@ -159,21 +158,21 @@ struct ComposerView: View {
                 // Send / Stop Button
                 Button(action: {
                     if isStreaming {
-                        // Stop generation
+                        onStop?()
                     } else {
                         handleSend()
                     }
                 }) {
-                    // Icon stays consistent between Ask and Agent — background color signals the mode.
-                    Image(systemName: isStreaming ? "stop.circle" : "arrow.up")
+                    // Icon and background signal mode and active streaming state
+                    Image(systemName: isStreaming ? "stop.fill" : "arrow.up")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.white)
                         .frame(width: 36, height: 36)
-                        .background(sendButtonColor)
+                        .background(isStreaming ? Color.hermes.danger : sendButtonColor)
                         .clipShape(Circle())
                 }
                 .buttonStyle(PlainButtonStyle())
-                .disabled(!isStreaming && ((messageText.isEmpty && attachedFiles.isEmpty && pastedCode == nil) || (chatMode == .agent && !hasWorkspace)))
+                .disabled(!isStreaming && (messageText.trimmingCharacters(in: .whitespaces).isEmpty && attachedFiles.isEmpty && pastedCode == nil))
                 .keyboardShortcut(.return, modifiers: [.command])
             }
             .padding(.horizontal, HermesSpacing.lg)
@@ -202,7 +201,7 @@ struct ComposerView: View {
                 isListening = false
                 let text = speechRecognizer.recognizedText.trimmingCharacters(in: .whitespaces)
                 speechRecognizer.recognizedText = ""
-                if !text.isEmpty { onSend?(text) }
+                if !text.isEmpty { onSend?(text, []) }
             }
         }
     }
@@ -337,21 +336,23 @@ struct ComposerView: View {
     // MARK: - Computed
     private var sendButtonColor: Color {
         if isStreaming { return .hermes.danger }
-        if isRateLimited || (chatMode == .agent && !hasWorkspace) { return .hermes.muted.opacity(0.4) }
+        if isRateLimited { return .hermes.muted.opacity(0.4) }
         if messageText.isEmpty && attachedFiles.isEmpty && pastedCode == nil { return .hermes.muted.opacity(0.4) }
         return chatMode == .agent ? .orange : .hermes.accent
     }
     
     private var allowedFileTypes: [UTType] {
-        [
+        var types: [UTType] = [
             .image,
             .pdf, .plainText, .utf8PlainText,
             .sourceCode, .json, .xml, .commaSeparatedText,
-            .html, .css, .javaScript,
-            UTType(filenameExtension: "md") ?? .plainText,
-            UTType(filenameExtension: "php") ?? .sourceCode,
-            UTType(filenameExtension: "docx") ?? .data
-        ].compactMap { $0 }
+            .html, .javaScript
+        ]
+        if let css = UTType(filenameExtension: "css") { types.append(css) }
+        if let md = UTType(filenameExtension: "md") { types.append(md) }
+        if let php = UTType(filenameExtension: "php") { types.append(php) }
+        if let docx = UTType(filenameExtension: "docx") { types.append(docx) }
+        return types
     }
     
     #if os(macOS)
@@ -368,14 +369,11 @@ struct ComposerView: View {
     }
 
     // Called by ChatTextView when the user presses plain Return.
-    // Guards mirror the Send button's disabled logic so the keyboard path
-    // cannot bypass rate limiting, streaming, or the agent-without-workspace state.
     private func submitFromKeyboard() {
         let canSend = !messageText.trimmingCharacters(in: .whitespaces).isEmpty
             || !attachedFiles.isEmpty
             || pastedCode != nil
-        let allowedForMode = !(chatMode == .agent && !hasWorkspace)
-        guard canSend, !isStreaming, !isRateLimited, allowedForMode else { return }
+        guard canSend, !isStreaming, !isRateLimited else { return }
         handleSend()
     }
     #endif
@@ -583,7 +581,7 @@ struct PasteCodeSheet: View {
         var body: some View {
             VStack {
                 Spacer()
-                ComposerView(roomId: "1", isAutoSpeakEnabled: $autoSpeak)
+                ComposerView(roomId: "1", isAutoSpeakEnabled: $autoSpeak, isWebSearchEnabled: .constant(false))
             }
             .background(Color.hermes.bg)
         }

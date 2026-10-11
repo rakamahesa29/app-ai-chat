@@ -53,6 +53,9 @@ struct MainContainerView: View {
                                     if let idx = rooms.firstIndex(where: { $0.id == roomID }) {
                                         rooms[idx].model = newModel
                                     }
+                                    Task {
+                                        try? await APIClient.shared.updateRoom(id: roomID, model: newModel)
+                                    }
                                 }
                             )
                             .id(room.id)  // Force re-creation on room switch

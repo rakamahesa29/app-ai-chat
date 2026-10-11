@@ -115,14 +115,48 @@ struct ChatMessage: Identifiable, Equatable {
     var isEducationEval: Bool = false
     var evalData: ThesisEvalData? = nil
     var rating: MessageRating? = nil
+    var checkpoints: [AgentCheckpoint] = []
     var timestamp: Date = Date()
     
-    init(id: String = UUID().uuidString, content: String, isUser: Bool, hasWebContext: Bool = false, hasReasoning: Bool = false, reasoningContent: String? = nil, isEducationEval: Bool = false, evalData: ThesisEvalData? = nil) {
+    init(id: String = UUID().uuidString, content: String, isUser: Bool, hasWebContext: Bool = false, hasReasoning: Bool = false, reasoningContent: String? = nil, isEducationEval: Bool = false, evalData: ThesisEvalData? = nil, checkpoints: [AgentCheckpoint] = []) {
         self.id = id; self.content = content; self.isUser = isUser; self.hasWebContext = hasWebContext
         self.hasReasoning = hasReasoning; self.reasoningContent = reasoningContent
         self.isEducationEval = isEducationEval; self.evalData = evalData
+        self.checkpoints = checkpoints
     }
 }
+
+struct AgentCheckpoint: Identifiable, Equatable {
+    let id: String
+    let action: String // "explored", "created", "edited", "deleted"
+    let path: String
+    let file: String
+    let step: Int
+    let statusCode: String
+    let message: String
+    let timestamp: Date
+    
+    init(
+        id: String = UUID().uuidString,
+        action: String,
+        path: String,
+        file: String,
+        step: Int,
+        statusCode: String = "success",
+        message: String = "",
+        timestamp: Date = Date()
+    ) {
+        self.id = id
+        self.action = action
+        self.path = path
+        self.file = file
+        self.step = step
+        self.statusCode = statusCode
+        self.message = message
+        self.timestamp = timestamp
+    }
+}
+
 struct ThesisEvalData: Equatable {
     var bab1Score: Double?; var bab2Score: Double?; var bab3Score: Double?
     var bab4Score: Double?; var bab5Score: Double?; var coherenceScore: Double?

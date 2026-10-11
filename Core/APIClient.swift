@@ -227,6 +227,15 @@ extension APIClient {
     func deleteRoom(id: String) async throws {
         let _: APIResponse<Empty> = try await request("/chat/rooms/\(id)", method: .delete)
     }
+
+    func updateRoom(id: String, model: String? = nil, title: String? = nil, category: String? = nil, persona: String? = nil) async throws {
+        var body: [String: String] = [:]
+        if let m = model { body["model"] = m }
+        if let t = title { body["title"] = t }
+        if let c = category { body["category"] = c }
+        if let p = persona { body["persona"] = p }
+        let _: APIResponse<RoomResponse> = try await request("/chat/rooms/\(id)", method: .put, body: body)
+    }
     
     func rateMessage(id: String, rating: Int) async throws {
         let _: APIResponse<Empty> = try await request(
