@@ -659,6 +659,7 @@ struct ProvidersData: Decodable {
     let ollamaEnabled: Bool?
     let ollamaCloudEnabled: Bool?
     let deepseekEnabled: Bool?
+    let geminiEnabled: Bool?
 }
 
 struct ActivityPoint: Decodable {

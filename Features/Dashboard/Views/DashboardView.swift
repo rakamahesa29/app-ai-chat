@@ -6,6 +6,7 @@ struct DashboardView: View {
     @State private var isOllamaEnabled = true
     @State private var isOllamaCloudEnabled = false
     @State private var isDeepSeekEnabled = false
+    @State private var isGeminiEnabled = true
     @State private var isAnalyzing = false
     @State private var stats: DashboardStats? = nil
     @State private var activityData: [ActivityItem] = []
@@ -51,6 +52,8 @@ struct DashboardView: View {
                                 .onChange(of: isOllamaCloudEnabled) { toggleProvider("ollama_cloud", enabled: isOllamaCloudEnabled) }
                             HermesToggleRow(title: "DeepSeek API", subtitle: "Premium", icon: "cloud", iconColor: .purple, isOn: $isDeepSeekEnabled)
                                 .onChange(of: isDeepSeekEnabled) { toggleProvider("deepseek", enabled: isDeepSeekEnabled) }
+                            HermesToggleRow(title: "Gemini Pro", subtitle: "Subscription Bridge", icon: "sparkles", iconColor: .indigo, isOn: $isGeminiEnabled)
+                                .onChange(of: isGeminiEnabled) { toggleProvider("gemini", enabled: isGeminiEnabled) }
                         }
                     }
                 }
@@ -184,6 +187,7 @@ struct DashboardView: View {
                 isOllamaEnabled = p.ollamaEnabled ?? true
                 isOllamaCloudEnabled = p.ollamaCloudEnabled ?? false
                 isDeepSeekEnabled = p.deepseekEnabled ?? false
+                isGeminiEnabled = p.geminiEnabled ?? true
             }
         } catch {
             // Keep mock data on failure

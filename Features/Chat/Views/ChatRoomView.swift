@@ -228,9 +228,76 @@ struct ChatRoomView: View {
 
             if isEducationRoom { ToggleButton(label: "Skripsi", icon: "graduationcap", isOn: $isSkripsiMode, color: .orange) }
             DeepSeekProToggle(isOn: $isDeepSeekPro, visible: selectedModel == "deepseek")
-            Picker("Model", selection: $selectedModel) {
-                Text("Ornith").tag("ollama"); Text("Gemma4 31B").tag("ollama_cloud"); Text("DeepSeek").tag("deepseek")
-            }.pickerStyle(.menu).font(.hermes.caption).foregroundColor(.hermes.muted)
+            Menu {
+                Section("Standard Models") {
+                    Button(action: { selectedModel = "ollama" }) {
+                        if selectedModel == "ollama" { Label("Ornith (Local)", systemImage: "checkmark") } else { Text("Ornith (Local)") }
+                    }
+                    Button(action: { selectedModel = "ollama_cloud" }) {
+                        if selectedModel == "ollama_cloud" { Label("Gemma4 31B Cloud", systemImage: "checkmark") } else { Text("Gemma4 31B Cloud") }
+                    }
+                    Button(action: { selectedModel = "deepseek" }) {
+                        if selectedModel == "deepseek" { Label("DeepSeek API", systemImage: "checkmark") } else { Text("DeepSeek API") }
+                    }
+                }
+                Menu("Gemini 3.8 Flash") {
+                    Button(action: { selectedModel = "gemini-3.8-flash-low" }) {
+                        if selectedModel == "gemini-3.8-flash-low" || selectedModel == "gemini_pro" || selectedModel == "gemini" { Label("Low Thinking", systemImage: "checkmark") } else { Text("Low Thinking") }
+                    }
+                    Button(action: { selectedModel = "gemini-3.8-flash-medium" }) {
+                        if selectedModel == "gemini-3.8-flash-medium" { Label("Medium Thinking", systemImage: "checkmark") } else { Text("Medium Thinking") }
+                    }
+                    Button(action: { selectedModel = "gemini-3.8-flash-high" }) {
+                        if selectedModel == "gemini-3.8-flash-high" { Label("High Thinking", systemImage: "checkmark") } else { Text("High Thinking") }
+                    }
+                }
+                Menu("Claude Sonnet 5.5") {
+                    Button(action: { selectedModel = "claude-sonnet-5-5-low" }) {
+                        if selectedModel == "claude-sonnet-5-5-low" { Label("Low Thinking", systemImage: "checkmark") } else { Text("Low Thinking") }
+                    }
+                    Button(action: { selectedModel = "claude-sonnet-5-5-medium" }) {
+                        if selectedModel == "claude-sonnet-5-5-medium" { Label("Medium Thinking", systemImage: "checkmark") } else { Text("Medium Thinking") }
+                    }
+                    Button(action: { selectedModel = "claude-sonnet-5-5-high" }) {
+                        if selectedModel == "claude-sonnet-5-5-high" { Label("High Thinking", systemImage: "checkmark") } else { Text("High Thinking") }
+                    }
+                }
+                Menu("Claude Opus 5.5") {
+                    Button(action: { selectedModel = "claude-opus-5-5-low" }) {
+                        if selectedModel == "claude-opus-5-5-low" { Label("Low Thinking", systemImage: "checkmark") } else { Text("Low Thinking") }
+                    }
+                    Button(action: { selectedModel = "claude-opus-5-5-medium" }) {
+                        if selectedModel == "claude-opus-5-5-medium" { Label("Medium Thinking", systemImage: "checkmark") } else { Text("Medium Thinking") }
+                    }
+                    Button(action: { selectedModel = "claude-opus-5-5-high" }) {
+                        if selectedModel == "claude-opus-5-5-high" { Label("High Thinking", systemImage: "checkmark") } else { Text("High Thinking") }
+                    }
+                }
+                Section("GPT-OSS") {
+                    Button(action: { selectedModel = "gpt-oss-120b-medium" }) {
+                        if selectedModel == "gpt-oss-120b-medium" { Label("GPT-OSS 120B (Medium)", systemImage: "checkmark") } else { Text("GPT-OSS 120B (Medium)") }
+                    }
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text(modelLabel)
+                        .font(.hermes.caption)
+                        .foregroundColor(.hermes.text)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 8))
+                        .foregroundColor(.hermes.muted)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.hermes.surface)
+                .cornerRadius(HermesRadius.sm)
+                .overlay(
+                    RoundedRectangle(cornerRadius: HermesRadius.sm)
+                        .strokeBorder(Color.hermes.border, lineWidth: 1)
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
         }.padding(.horizontal, HermesSpacing.lg).padding(.vertical, HermesSpacing.md).background(Color.hermes.surface)
     }
     
@@ -613,7 +680,22 @@ struct ChatRoomView: View {
     
     // Computed
     private var modelLabel: String {
-        switch selectedModel { case "ollama": "Ornith"; case "ollama_cloud": "Gemma4 31B"; case "deepseek": isDeepSeekPro ? "DeepSeek Pro" : "DeepSeek Flash"; default: "Ornith" }
+        switch selectedModel {
+        case "ollama": "Ornith"
+        case "ollama_cloud": "Gemma4 31B"
+        case "deepseek": isDeepSeekPro ? "DeepSeek Pro" : "DeepSeek Flash"
+        case "gemini-3.8-flash-low", "gemini_pro", "gemini": "Gemini 3.8 Flash (Low)"
+        case "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Med)"
+        case "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)"
+        case "claude-sonnet-5-5-low": "Claude Sonnet (Low)"
+        case "claude-sonnet-5-5-medium": "Claude Sonnet (Med)"
+        case "claude-sonnet-5-5-high": "Claude Sonnet (High)"
+        case "claude-opus-5-5-low": "Claude Opus (Low)"
+        case "claude-opus-5-5-medium": "Claude Opus (Med)"
+        case "claude-opus-5-5-high": "Claude Opus (High)"
+        case "gpt-oss-120b-medium": "GPT-OSS 120B"
+        default: selectedModel
+        }
     }
     private var memoryIcon: String { memoryUsed >= memoryMax ? "rectangle.compress.vertical" : memoryUsed >= 5 ? "square.stack.3d.up" : "square.stack.3d.down.forward" }
     private var memoryColor: Color { memoryUsed >= memoryMax ? .hermes.danger : memoryUsed >= 5 ? .hermes.warning : .hermes.muted }
@@ -1475,18 +1557,291 @@ private struct RichMessageContent: View {
         return blocks
     }
     
-    /// Strip only residual DeepSeek thinking tags left over from parsing.
-    /// Must NOT strip legitimate HTML in code examples (e.g. <html lang="...">).
+    // MARK: - Markdown Sanitization & Preprocessing
+    private static let lucideIcons: [String: String] = [
+        "activity": "🩺",
+        "heart": "❤️",
+        "heart-pulse": "💓",
+        "zap": "⚡",
+        "info": "ℹ️",
+        "alert-triangle": "⚠️",
+        "alert-circle": "⚠️",
+        "check": "✓",
+        "check-circle": "✅",
+        "check-circle-2": "✅",
+        "x-circle": "❌",
+        "x": "✕",
+        "brain": "🧠",
+        "cpu": "💻",
+        "hard-drive": "💾",
+        "sparkles": "✨",
+        "lightbulb": "💡",
+        "shield": "🛡️",
+        "shield-check": "🛡️",
+        "shield-alert": "🛡️",
+        "message-square": "💬",
+        "file-text": "📄",
+        "file": "📄",
+        "folder": "📁",
+        "code": "💻",
+        "terminal": "🖥️",
+        "database": "🗄️",
+        "search": "🔍",
+        "scan-search": "🔍",
+        "user": "👤",
+        "users": "👥",
+        "refresh-cw": "🔄",
+        "rocket": "🚀",
+        "sun": "☀️",
+        "moon": "🌙",
+        "clock": "🕒",
+        "calendar": "📅",
+        "book": "📚",
+        "book-open": "📖",
+        "graduation-cap": "🎓",
+        "flame": "🔥",
+        "link": "🔗",
+        "settings": "⚙️",
+        "sliders": "⚙️",
+        "lock": "🔒",
+        "unlock": "🔓",
+        "key": "🔑",
+        "star": "⭐",
+        "bell": "🔔",
+        "mail": "✉️",
+        "phone": "📞",
+        "globe": "🌐",
+        "trash": "🗑️",
+        "trash-2": "🗑️",
+        "edit": "✏️",
+        "edit-3": "✏️",
+        "external-link": "↗️",
+        "arrow-right": "→",
+        "arrow-left": "←",
+        "arrow-up": "↑",
+        "arrow-down": "↓",
+        "target": "🎯",
+        "award": "🏆",
+        "tag": "🏷️",
+        "filter": "🔎",
+        "image": "🖼️",
+        "video": "🎥",
+        "music": "🎵",
+        "wifi": "📶",
+        "battery": "🔋",
+        "cloud": "☁️",
+        "bar-chart": "📊",
+        "bar-chart-2": "📊",
+        "trending-up": "📈",
+        "trending-down": "📉",
+        "layers": "🥞",
+        "package": "📦",
+        "map-pin": "📍",
+        "compass": "🧭",
+        "eye": "👁️",
+        "eye-off": "🙈",
+        "git-branch": "🌿",
+        "git-commit": "⭕",
+        "git-pull-request": "🔀",
+        "hammer": "🔨",
+        "wrench": "🔧",
+        "bug": "🐛",
+        "stethoscope": "🩺",
+        "thermometer": "🌡️",
+        "pill": "💊",
+        "microscope": "🔬",
+        "circle-dot": "🔘",
+        "sun-moon": "🌗"
+    ]
+
+    private static let subscriptMap: [Character: Character] = [
+        "0": "₀", "1": "₁", "2": "₂", "3": "₃", "4": "₄",
+        "5": "₅", "6": "₆", "7": "₇", "8": "₈", "9": "₉",
+        "+": "₊", "-": "₋", "=": "₌", "(": "₍", ")": "₎",
+        ".": ".", ",": ",",
+        "a": "ₐ", "e": "ₑ", "o": "ₒ", "x": "ₓ", "h": "ₕ",
+        "k": "ₖ", "l": "ₗ", "m": "ₘ", "n": "ₙ", "p": "ₚ",
+        "s": "ₛ", "t": "ₜ", "i": "ᵢ", "j": "ⱼ"
+    ]
+
+    private static let superscriptMap: [Character: Character] = [
+        "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+        "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
+        "+": "⁺", "-": "⁻", "=": "⁼", "(": "⁽", ")": "⁾",
+        "n": "ⁿ", "i": "ⁱ", "x": "ˣ"
+    ]
+
+    private static func toSubscript(_ text: String) -> String {
+        String(text.map { subscriptMap[$0] ?? $0 })
+    }
+
+    private static func toSuperscript(_ text: String) -> String {
+        String(text.map { superscriptMap[$0] ?? $0 })
+    }
+
+    private static func formatMathExpression(_ text: String) -> String {
+        var str = text
+        
+        // Convert subscripts: _{...} and _[0-9a-zA-Z]
+        if let subRegex = try? NSRegularExpression(pattern: "_\\{([^{}]+)\\}|_([0-9a-zA-Z])", options: []) {
+            let ns = str as NSString
+            let matches = subRegex.matches(in: str, range: NSRange(location: 0, length: ns.length))
+            for m in matches.reversed() {
+                let targetRange = m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range(at: 2)
+                let subContent = ns.substring(with: targetRange)
+                let converted = toSubscript(subContent)
+                str = (str as NSString).replacingCharacters(in: m.range, with: converted)
+            }
+        }
+        
+        // Convert superscripts: ^{...} and ^[0-9a-zA-Z]
+        if let supRegex = try? NSRegularExpression(pattern: "\\^\\{([^{}]+)\\}|\\^([0-9a-zA-Z])", options: []) {
+            let ns = str as NSString
+            let matches = supRegex.matches(in: str, range: NSRange(location: 0, length: ns.length))
+            for m in matches.reversed() {
+                let targetRange = m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range(at: 2)
+                let supContent = ns.substring(with: targetRange)
+                let converted = toSuperscript(supContent)
+                str = (str as NSString).replacingCharacters(in: m.range, with: converted)
+            }
+        }
+        
+        // Convert LaTeX math symbols
+        let symbolReplacements: [(String, String)] = [
+            ("\\\\times", "×"),
+            ("\\\\div", "÷"),
+            ("\\\\pm", "±"),
+            ("\\\\approx", "≈"),
+            ("\\\\neq", "≠"),
+            ("\\\\le(q)?", "≤"),
+            ("\\\\ge(q)?", "≥"),
+            ("\\\\infty", "∞"),
+            ("\\\\cdot", "·"),
+            ("\\\\degree", "°"),
+            ("\\\\to|\\\\rightarrow", "→"),
+            ("\\\\leftarrow", "←"),
+            ("\\\\alpha", "α"),
+            ("\\\\beta", "β"),
+            ("\\\\gamma", "γ"),
+            ("\\\\delta", "δ"),
+            ("\\\\Delta", "Δ"),
+            ("\\\\pi", "π"),
+            ("\\\\sigma", "σ"),
+            ("\\\\mu", "µ"),
+            ("\\\\theta", "θ"),
+            ("\\\\lambda", "λ"),
+            ("\\\\text\\{([^{}]+)\\}", "$1"),
+            ("\\\\mathrm\\{([^{}]+)\\}", "$1"),
+            ("\\\\mathbf\\{([^{}]+)\\}", "**$1**"),
+            ("\\\\mathit\\{([^{}]+)\\}", "*$1*"),
+            ("\\\\sqrt\\{([^{}]+)\\}", "√($1)"),
+            ("\\\\frac\\{([^{}]+)\\}\\{([^{}]+)\\}", "($1 / $2)")
+        ]
+        
+        for (pattern, repl) in symbolReplacements {
+            str = str.replacingOccurrences(of: pattern, with: repl, options: .regularExpression)
+        }
+        
+        return str.trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func formatCommonScientificNotation(_ text: String) -> String {
+        var str = text
+        if let sciRegex = try? NSRegularExpression(pattern: "\\b([A-Z][a-zA-Z]*)_\\{([0-9\\.]+)\\}|\\b([A-Z][a-zA-Z]*)_([0-9]+)", options: []) {
+            let ns = str as NSString
+            let matches = sciRegex.matches(in: str, range: NSRange(location: 0, length: ns.length))
+            for m in matches.reversed() {
+                let nameRange = m.range(at: 1).location != NSNotFound ? m.range(at: 1) : m.range(at: 3)
+                let subRange = m.range(at: 2).location != NSNotFound ? m.range(at: 2) : m.range(at: 4)
+                let name = ns.substring(with: nameRange)
+                let subVal = ns.substring(with: subRange)
+                let converted = name + toSubscript(subVal)
+                str = (str as NSString).replacingCharacters(in: m.range, with: converted)
+            }
+        }
+        return str
+    }
+
+    /// Preprocess and clean markdown text before feeding to MarkdownUI.
+    /// Converts Lucide HTML icons to inline emojis and LaTeX math notation to readable Unicode.
+    /// Preserves legitimate HTML and code inside code blocks untouched.
     private func sanitize(_ text: String) -> String {
-        var cleaned = text
-        cleaned = cleaned.replacingOccurrences(of: "</?details[^>]*>", with: "", options: .regularExpression)
-        cleaned = cleaned.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
-        // Collapse multiple newlines
-        cleaned = cleaned.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
-        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 1. Protect code blocks so we don't modify code or examples
+        var codeBlocks: [String] = []
+        let codePattern = "(```[\\s\\S]*?```|`[^`\\n]+`)"
+        guard let codeRegex = try? NSRegularExpression(pattern: codePattern) else {
+            return text
+        }
+        
+        var working = text
+        let nsWorking = working as NSString
+        let matches = codeRegex.matches(in: working, range: NSRange(location: 0, length: nsWorking.length))
+        
+        for match in matches.reversed() {
+            let matchedCode = nsWorking.substring(with: match.range)
+            codeBlocks.insert(matchedCode, at: 0)
+        }
+        
+        var placeholderIndex = 0
+        working = codeRegex.stringByReplacingMatches(in: working, options: [], range: NSRange(location: 0, length: (working as NSString).length), withTemplate: "%%HERMES_CODE_BLOCK_TAG%%")
+        
+        while let r = working.range(of: "%%HERMES_CODE_BLOCK_TAG%%") {
+            working.replaceSubrange(r, with: "%%HERMES_CODE_\(placeholderIndex)%%")
+            placeholderIndex += 1
+        }
+        
+        // 2. Remove residual DeepSeek thinking tags
+        working = working.replacingOccurrences(of: "</?details[^>]*>", with: "", options: .regularExpression)
+        working = working.replacingOccurrences(of: "</?summary>", with: "", options: .regularExpression)
+        
+        // 3. Process Lucide icon tags: <i data-lucide="name"></i> or <i ... data-lucide="name" ...></i>
+        if let lucideRegex = try? NSRegularExpression(pattern: "<i[^>]*data-lucide=[\"']([^\"']+)[\"'][^>]*>(?:<\\/i>)?", options: .caseInsensitive) {
+            let nsStr = working as NSString
+            let iconMatches = lucideRegex.matches(in: working, range: NSRange(location: 0, length: nsStr.length))
+            for match in iconMatches.reversed() {
+                let iconName = nsStr.substring(with: match.range(at: 1)).lowercased().trimmingCharacters(in: .whitespaces)
+                let replacement = Self.lucideIcons[iconName] ?? ""
+                let fullRange = match.range
+                let endLoc = fullRange.location + fullRange.length
+                let hasTrailingSpace = endLoc < nsStr.length && nsStr.character(at: endLoc) == 32
+                let finalReplacement = replacement.isEmpty ? "" : (hasTrailingSpace ? replacement : "\(replacement) ")
+                working = (working as NSString).replacingCharacters(in: fullRange, with: finalReplacement)
+            }
+        }
+        working = working.replacingOccurrences(of: "<i[^>]*>\\s*<\\/i>", with: "", options: .regularExpression)
+        
+        // 4. Process LaTeX / Math notation:
+        // A) Block math $$...$$ and inline math $...$
+        if let mathRegex = try? NSRegularExpression(pattern: "\\$\\$([\\s\\S]*?)\\$\\$|\\$([^\\$\\n]+)\\$", options: []) {
+            let nsStr = working as NSString
+            let mathMatches = mathRegex.matches(in: working, range: NSRange(location: 0, length: nsStr.length))
+            for match in mathMatches.reversed() {
+                let range1 = match.range(at: 1)
+                let range2 = match.range(at: 2)
+                let exprRange = range1.location != NSNotFound ? range1 : range2
+                var expr = nsStr.substring(with: exprRange)
+                
+                expr = Self.formatMathExpression(expr)
+                working = (working as NSString).replacingCharacters(in: match.range, with: expr)
+            }
+        }
+        
+        // B) Standalone scientific terms outside math tags (e.g. PM_{2.5}, CO_2, H_2O)
+        working = Self.formatCommonScientificNotation(working)
+        
+        // 5. Basic HTML tag cleanup
+        working = working.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: .regularExpression)
+        working = working.replacingOccurrences(of: "</?p>", with: "\n", options: .regularExpression)
+        working = working.replacingOccurrences(of: "<b>(.*?)</b>", with: "**$1**", options: .regularExpression)
+        working = working.replacingOccurrences(of: "<strong>(.*?)</strong>", with: "**$1**", options: .regularExpression)
+        
+        // 6. Restore protected code blocks
+        for (i, code) in codeBlocks.enumerated() {
+            working = working.replacingOccurrences(of: "%%HERMES_CODE_\(i)%%", with: code)
+        }
+        
+        // 7. Collapse multiple newlines
+        working = working.replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+        return working.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
-
-/// One markdown block owning its own height state so sibling blocks can't
-/// thrash each other's layout. Seeds the initial height from a global cache
-/// so a freshly-mounted WebView (e.g. right after streaming completes) does

@@ -14,17 +14,27 @@ A native macOS/iOS SwiftUI client for the Omoikane AI Chat backend (Laravel). Pr
 
 ## Features
 
-### Multi-Provider Chat
-- **Three LLM backends** switchable per-message: Ollama local, Ollama Cloud, and DeepSeek API.
+### Multi-Provider Chat & Antigravity Models
+- **Multiple LLM backends** switchable per-message:
+  - **Standard Models:** Ollama local (Ornith), Ollama Cloud (Gemma4 31B), DeepSeek API (Flash / Pro).
+  - **Antigravity / Gemini Subscription Models:** Direct proxy via local bridge:
+    - **Gemini 3.8 Flash** (`low`, `medium`, `high` thinking effort)
+    - **Claude Sonnet 5.5** (`low`, `medium`, `high` thinking effort)
+    - **Claude Opus 5.5** (`low`, `medium`, `high` thinking effort)
+    - **GPT-OSS 120B** (`medium` thinking effort)
+    - **Gemini Pro** (default fallback)
+- **Hierarchical Model Selector:** Custom SwiftUI `Menu` with nested sub-menus in both `ChatRoomView` and `ChatCreateView` with active checkmarks and subtle chevrons.
 - **DeepSeek Pro Mode:** Toggle to enable chain-of-thought reasoning with collapsible thinking blocks.
 - **Real-time SSE streaming** with dedicated `URLSessionConfiguration` optimized for long-running AI responses (5-min request timeout, 10-min resource timeout, 4 concurrent connections per host).
 - **Agent Mode (True Agentic Loop):** Client-side tool execution loop (read/write/delete/list files) capable of executing up to 30 continuous iterations automatically for massive file generation, complete with a real-time collapsible activity log.
 - **Room Skills:** Per-room custom instructions with CRUD management via API.
 
-### Adaptive Chat Interface
+### Adaptive Chat Interface & Rich Rendering
 - **NavigationSplitView** on macOS/iPad, **TabView** on iPhone.
 - Tabs: Dashboard, Chat, Brain (Knowledge Base), Files.
-- **Rich message rendering** natively at 60fps via `swift-markdown-ui` (no heavy WebViews), delivering a buttery smooth chat scrolling experience even during intensive AI streaming.
+- **Rich message rendering** natively at 60fps via `swift-markdown-ui` with custom preprocessors:
+  - **Lucide Icons to Emoji/Symbols:** Transforms HTML tags like `<i data-lucide="activity"></i>` into inline icons (e.g. 🩺) while strictly preserving verbatim code inside code blocks.
+  - **Unicode LaTeX Math & Chemistry:** Automatically converts LaTeX math notation (e.g. `$PM_{2.5}$` $\to$ `PM₂.₅`, `CO_2` $\to$ `CO₂`, `H_2O`, superscripts, Greek symbols, and arithmetic notation) without broken italics or raw dollar signs.
 - **Voice input** (microphone) and **voice output** (speaker) via on-device Speech framework.
 - **Code paste** and **file upload** via attachment menu.
 - **Message actions:** Rate (thumbs up/down), delete.

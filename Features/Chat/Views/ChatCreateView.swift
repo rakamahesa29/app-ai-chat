@@ -29,7 +29,18 @@ struct ChatCreateView: View {
     let models: [String: String] = [
         "ollama": "Ollama (Ornith)",
         "ollama_cloud": "Ollama (Gemma4 31B Cloud)",
-        "deepseek": "DeepSeek API"
+        "deepseek": "DeepSeek API",
+        "gemini-3.8-flash-low": "Gemini 3.8 Flash (Low Thinking)",
+        "gemini-3.8-flash-medium": "Gemini 3.8 Flash (Medium Thinking)",
+        "gemini-3.8-flash-high": "Gemini 3.8 Flash (High Thinking)",
+        "claude-sonnet-5-5-low": "Claude Sonnet 5.5 (Low Thinking)",
+        "claude-sonnet-5-5-medium": "Claude Sonnet 5.5 (Medium Thinking)",
+        "claude-sonnet-5-5-high": "Claude Sonnet 5.5 (High Thinking)",
+        "claude-opus-5-5-low": "Claude Opus 5.5 (Low Thinking)",
+        "claude-opus-5-5-medium": "Claude Opus 5.5 (Medium Thinking)",
+        "claude-opus-5-5-high": "Claude Opus 5.5 (High Thinking)",
+        "gpt-oss-120b-medium": "GPT-OSS 120B (Medium Thinking)",
+        "gemini_pro": "Gemini Pro"
     ]
     
     var body: some View {
@@ -64,12 +75,87 @@ struct ChatCreateView: View {
                                 displayLabels: personas
                             )
                             
-                            HermesPicker(
-                                label: "AI Model",
-                                selection: $selectedModel,
-                                options: ["ollama", "ollama_cloud", "deepseek"],
-                                displayLabels: models
-                            )
+                            VStack(alignment: .leading, spacing: HermesSpacing.sm) {
+                                Text("AI MODEL")
+                                    .font(.hermes.badge)
+                                    .foregroundColor(.hermes.muted)
+                                    .kerning(0.5)
+                                
+                                Menu {
+                                    Section("Standard Models") {
+                                        Button(action: { selectedModel = "ollama" }) {
+                                            if selectedModel == "ollama" { Label("Ollama (Ornith)", systemImage: "checkmark") } else { Text("Ollama (Ornith)") }
+                                        }
+                                        Button(action: { selectedModel = "ollama_cloud" }) {
+                                            if selectedModel == "ollama_cloud" { Label("Ollama (Gemma4 31B Cloud)", systemImage: "checkmark") } else { Text("Ollama (Gemma4 31B Cloud)") }
+                                        }
+                                        Button(action: { selectedModel = "deepseek" }) {
+                                            if selectedModel == "deepseek" { Label("DeepSeek API", systemImage: "checkmark") } else { Text("DeepSeek API") }
+                                        }
+                                    }
+                                    
+                                    Menu("Gemini 3.8 Flash") {
+                                        Button(action: { selectedModel = "gemini-3.8-flash-low" }) {
+                                            if selectedModel == "gemini-3.8-flash-low" || selectedModel == "gemini_pro" { Label("Low Thinking", systemImage: "checkmark") } else { Text("Low Thinking") }
+                                        }
+                                        Button(action: { selectedModel = "gemini-3.8-flash-medium" }) {
+                                            if selectedModel == "gemini-3.8-flash-medium" { Label("Medium Thinking", systemImage: "checkmark") } else { Text("Medium Thinking") }
+                                        }
+                                        Button(action: { selectedModel = "gemini-3.8-flash-high" }) {
+                                            if selectedModel == "gemini-3.8-flash-high" { Label("High Thinking", systemImage: "checkmark") } else { Text("High Thinking") }
+                                        }
+                                    }
+                                    
+                                    Menu("Claude Sonnet 5.5") {
+                                        Button(action: { selectedModel = "claude-sonnet-5-5-low" }) {
+                                            if selectedModel == "claude-sonnet-5-5-low" { Label("Low Thinking", systemImage: "checkmark") } else { Text("Low Thinking") }
+                                        }
+                                        Button(action: { selectedModel = "claude-sonnet-5-5-medium" }) {
+                                            if selectedModel == "claude-sonnet-5-5-medium" { Label("Medium Thinking", systemImage: "checkmark") } else { Text("Medium Thinking") }
+                                        }
+                                        Button(action: { selectedModel = "claude-sonnet-5-5-high" }) {
+                                            if selectedModel == "claude-sonnet-5-5-high" { Label("High Thinking", systemImage: "checkmark") } else { Text("High Thinking") }
+                                        }
+                                    }
+                                    
+                                    Menu("Claude Opus 5.5") {
+                                        Button(action: { selectedModel = "claude-opus-5-5-low" }) {
+                                            if selectedModel == "claude-opus-5-5-low" { Label("Low Thinking", systemImage: "checkmark") } else { Text("Low Thinking") }
+                                        }
+                                        Button(action: { selectedModel = "claude-opus-5-5-medium" }) {
+                                            if selectedModel == "claude-opus-5-5-medium" { Label("Medium Thinking", systemImage: "checkmark") } else { Text("Medium Thinking") }
+                                        }
+                                        Button(action: { selectedModel = "claude-opus-5-5-high" }) {
+                                            if selectedModel == "claude-opus-5-5-high" { Label("High Thinking", systemImage: "checkmark") } else { Text("High Thinking") }
+                                        }
+                                    }
+                                    
+                                    Section("GPT-OSS") {
+                                        Button(action: { selectedModel = "gpt-oss-120b-medium" }) {
+                                            if selectedModel == "gpt-oss-120b-medium" { Label("GPT-OSS 120B (Medium)", systemImage: "checkmark") } else { Text("GPT-OSS 120B (Medium)") }
+                                        }
+                                    }
+                                } label: {
+                                    HStack {
+                                        Text(models[selectedModel] ?? selectedModel)
+                                            .font(.hermes.body)
+                                            .foregroundColor(.hermes.text)
+                                        Spacer()
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(.system(size: 11, weight: .medium))
+                                            .foregroundColor(.hermes.muted)
+                                    }
+                                    .padding(HermesSpacing.md)
+                                    .background(Color.hermes.surface)
+                                    .cornerRadius(HermesRadius.md)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: HermesRadius.md)
+                                            .strokeBorder(Color.hermes.border, lineWidth: 1)
+                                    )
+                                }
+                                .menuStyle(.borderlessButton)
+                                .menuIndicator(.hidden)
+                            }
                             
                             // Info
                             HStack(alignment: .top, spacing: HermesSpacing.md) {
